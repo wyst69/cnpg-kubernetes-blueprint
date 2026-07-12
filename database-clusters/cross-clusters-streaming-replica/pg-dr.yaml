@@ -1,0 +1,60 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-dr
+  namespace: dr
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:18
+
+  storage:
+    size: 1Gi
+
+  postgresql:
+    synchronous:
+      method: first
+      number: 2 
+      standbyNamesPre:
+        - pg-main
+    parameters:
+      wal_log_hints: "on"
+
+  bootstrap:
+    pg_basebackup:
+      source: pg-main
+
+  replica:
+    primary: pg-main           # != own name  -> this is a replica
+    source: pg-main            # streams FROM pg-main
+
+  externalClusters:
+    - name: pg-main
+      connectionParameters:
+        host: pg-main-rw.main.svc
+        user: streaming_replica
+        sslmode: verify-full
+        dbname: postgres
+      sslKey:
+        name: pg-main-replication
+        key: tls.key
+      sslCert:
+        name: pg-main-replication
+        key: tls.crt
+      sslRootCert:
+        name: pg-main-ca
+        key: ca.crt
+    - name: pg-dr
+      connectionParameters:
+        host: pg-dr-rw.dr.svc
+        user: streaming_replica
+        sslmode: verify-full
+        dbname: postgres
+      sslKey:
+        name: pg-dr-replication
+        key: tls.key
+      sslCert:
+        name: pg-dr-replication
+        key: tls.crt
+      sslRootCert:
+        name: pg-dr-ca
+        key: ca.crt
