@@ -30,6 +30,7 @@ spec:
     source: pg-dr              # where it streams FROM once demoted
 
   externalClusters:
+  externalClusters:
     - name: pg-main
       connectionParameters:
         host: pg-main-rw.main.svc
@@ -45,6 +46,11 @@ spec:
       sslRootCert:
         name: pg-main-ca
         key: ca.crt
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: minio-store # <== REPLACE WITH THE NAME OF YOUR OBJECT STORE RESSOURCE
+          serverName: pg-main
     - name: pg-dr
       connectionParameters:
         host: pg-dr-rw.dr.svc
@@ -60,3 +66,8 @@ spec:
       sslRootCert:
         name: pg-dr-ca
         key: ca.crt
+      plugin:
+        name: barman-cloud.cloudnative-pg.io  # <== REPLACE WITH THE NAME OF YOUR OBJECT STORE RESSOURCE
+        parameters:
+          barmanObjectName: minio-store
+          serverName: pg-dr
