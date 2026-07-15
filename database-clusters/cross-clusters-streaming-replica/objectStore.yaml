@@ -1,0 +1,25 @@
+# =====================================================================
+# ObjectStore — where barman-cloud keeps base backups + archived WAL (MinIO/S3).
+# IMPORTANT: an ObjectStore MUST live in the SAME namespace as the Cluster
+#            that uses it, or the plugin silently stalls.
+# PREREQUISITE: the minio-creds secret (minio-secret.yaml) must exist first.
+# =====================================================================
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: minio-store
+spec:
+  configuration:
+    destinationPath: s3://cnpg-backups/                     # <-- bucket "cnpg-backups" — MAY DIFFER IN YOUR ENVIRONMENT
+    endpointURL: http://minio.minio.svc.cluster.local:9000  # <-- MinIO endpoint — MAY DIFFER IN YOUR ENVIRONMENT
+    s3Credentials:
+      accessKeyId:
+        name: minio-creds
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: minio-creds
+        key: ACCESS_SECRET_KEY
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
