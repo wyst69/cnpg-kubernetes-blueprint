@@ -174,11 +174,17 @@ If you delete a `DatabaseRole` CRD with a reclaim policy of `delete` while it st
 
 To safely execute a declarative delete on an existing role, you must clean up its relational footprint inside the database *before* removing the Kubernetes manifest. Log into your target databases and execute:
 
+Option 1: you want to keep the objects owned by the role
 ```sql
 -- 1. Reassign ownership of all objects (tables, schemas) to a successor role
 REASSIGN OWNED BY app_billing TO principal_owner;
 
 -- 2. Revoke any remaining privileges (like SELECT/INSERT grants)
+DROP OWNED BY app_billing;
+```
+Option 2: you want to delete the objects owned by the role
+```sql
+-- 1. Delete all objects and revoke any remaining privileges (like SELECT/INSERT grants)
 DROP OWNED BY app_billing;
 ```
 
