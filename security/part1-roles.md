@@ -190,6 +190,19 @@ DROP OWNED BY app_billing;
 
 Once those commands complete across your database landscape, the operator will process the `DatabaseRole` deletion instantly and cleanly.
 
+### ⚠️ Crucial Edge Case: Database Ownership
+
+If the role you want to drop is the actual owner of an entire database, a standard `REASSIGN OWNED BY` command executed on a default connection will fail to clean inner-database objects. This is because a database container is a **global object**, while the schemas and tables inside it are **local objects**.
+
+To safely evict a role that owns a database, follow this exact sequence:
+
+1. **Transfer Global Container Ownership** (Run from any connection, like the `postgres` db):
+```sql
+ALTER DATABASE corporate_prod_db OWNER TO deployment_admin;
+```
+
+Then apply the previous procedure at the database level
+
 ---
 
 ## 🔭 Up Next: Part 2 — The Cross-Cluster Vault Integration
