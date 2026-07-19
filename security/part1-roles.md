@@ -10,6 +10,24 @@ In this article, we explore the architecture of declarative role management, des
 
 ---
 
+## The "Day 0" constraint
+
+By design, CNPG will ALWAYS create a first role (and a first database) when using the initdb bootstrap method.
+If you don't specify anything, this role will be called `app` but you can set your own name.
+
+```yaml
+  bootstrap:
+    initdb:
+      database: app_dummy
+      owner: dba_bootstrap
+
+```
+
+This role cannot be managed by the `DatabaseRole` CRD.
+In this example, if you try to deploy a standalone `DatabaseRole` named `dba_bootstrap`, the Cluster specification will take precedence. The standalone CRD will refuse to reconcile and will report a conflict in its status block. 
+
+---
+
 ## 👥 The Machine vs. Human Split Authentication Model
 
 When designing a zero-trust database platform, a one-size-fits-all authentication model fails. We draw a strict boundary between automated machine workloads and human operators:
@@ -205,10 +223,13 @@ Then apply the previous procedure at the database level
 
 ---
 
-## 🔭 Up Next: Part 2 — The Cross-Cluster Vault Integration
+## 🔭 Up Next: Part 2 — The Production Grade Secret Management
 
-We now have declarative, namespace-scoped GitOps roles. But what happens in a Multi-Cluster Disaster Recovery scenario? 
+We now have declarative, namespace-scoped GitOps roles. But there are several issues that we want to take into consideration in a production environment:
+- Proper certificates (not self-signed)
+- Single source of truth for passwords
+- Secret rotation
+- Cross-cluster secrets
+- ... 
 
-The local client and server CAs managed by the CNPG operator are scoped to individual Kubernetes instances. If we replicate our data to a standby disaster-recovery cluster (`pg-dr`), how do we prevent automated local certificate rotation from silently destroying the replication boundary?
-
-In **Part 2**, we will solve this enterprise constraint by moving cert-manager to a shared **HashiCorp Vault PKI Secrets Engine**, and coordinating our database passwords using the **External Secrets Operator (ESO)**. Stay tuned.
+In **Part 2**, we will solve those enterprise constraints by using **cert-manager** and **External Secrets Operator (ESO)** to coordinate with an **HashiCorp Vault**. Stay tuned.
