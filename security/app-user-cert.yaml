@@ -1,0 +1,11 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-user-cert
+  namespace: dev
+spec:
+  secretName: app-user-client-tls
+  commonName: app-user                  # Must match DB user name
+  issuerRef:
+    name: cnpg-client-issuer
+    kind: ClusterIssuer

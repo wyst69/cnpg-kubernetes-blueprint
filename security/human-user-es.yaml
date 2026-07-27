@@ -1,0 +1,21 @@
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: human-user-es
+  namespace: dev
+spec:
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: human-user
+  data:
+    - secretKey: password
+      remoteRef:
+        key: cnpg/dev/human-user
+        property: password
+    - secretKey: username
+      remoteRef:
+        key: cnpg/dev/human-user
+        property: username

@@ -1,0 +1,12 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: DatabaseRole
+metadata:
+  name: human-user
+  namespace: dev
+spec:
+  cluster:
+    name: pg-cluster
+  name: human-user
+  login: true
+  passwordSecret:
+    name: human-user

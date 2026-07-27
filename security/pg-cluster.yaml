@@ -1,0 +1,25 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-cluster
+  namespace: dev
+spec:
+  instances: 3
+
+  # 1. Use the ESO-managed admin user/password from Vault
+  bootstrap:
+    initdb:
+      database: admindb           # Initial database name
+      owner: admin                # Set 'admin' as DB owner
+      secret:
+        name: cnpg-dev-admin
+
+  # 2. Wire up cert-manager TLS certificates
+  certificates:
+    serverTLSSecret: pg-cluster-server-tls
+    serverCASecret: pg-cluster-server-tls
+    clientCASecret: pg-cluster-replication-tls
+    replicationTLSSecret: pg-cluster-replication-tls
+
+  storage:
+    size: 1Gi

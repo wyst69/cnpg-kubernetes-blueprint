@@ -1,0 +1,23 @@
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: cnpg-dev-admin-es
+  namespace: dev
+spec:
+  refreshInterval: "1h" # ESO will check Vault every hour for password rotations
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: cnpg-dev-admin # This is the actual K8s Secret CNPG will use
+    template:
+      type: kubernetes.io/basic-auth
+  data:
+    - secretKey: username
+      remoteRef:
+        key: cnpg/dev/admin # The path inside your "kv" mount
+        property: username
+    - secretKey: password
+      remoteRef:
+        key: cnpg/dev/admin
+        property: password

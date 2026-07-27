@@ -1,0 +1,24 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cnpg-server-issuer
+spec:
+  vault:
+    # 1. Target our internal Vault Service address
+    server: "https://vault.vault.svc.cluster.local:8200"
+    
+    # 2. Point to the specific signing role we mapped in the prerequisites
+    path: "pki/sign/cnpg-server-role"
+    
+    # 3. Trust Vault's HTTPS listener using the CA secret we created
+    caBundleSecretRef:
+      name: vault-ca-secret
+      key: ca.crt
+
+    # 4. Pass through our Unified Gateway using K8s Auth
+    auth:
+      kubernetes:
+        mountPath: "/v1/auth/kubernetes"
+        role: "cert-manager" # Matches the role in your prerequisites
+        serviceAccountRef:
+          name: "cert-manager"

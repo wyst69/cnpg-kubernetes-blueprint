@@ -1,0 +1,39 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pg-cluster-server-cert
+  namespace: dev
+spec:
+  secretName: pg-cluster-server-tls
+  issuerRef:
+    name: cnpg-server-issuer
+    kind: ClusterIssuer
+  dnsNames:
+    # Read-Write Service
+    - pg-cluster-rw.dev.svc
+    - pg-cluster-rw.dev.svc.cluster.local
+
+    # Read-Only Service
+    - pg-cluster-ro.dev.svc
+    - pg-cluster-ro.dev.svc.cluster.local
+
+    # Read Service
+    - pg-cluster-r.dev.svc
+    - pg-cluster-r.dev.svc.cluster.local
+
+    # Wildcards for pod-to-pod communication
+    - "*.pg-cluster.dev.svc"
+    - "*.pg-cluster.dev.svc.cluster.local"
+---
+# 2. Streaming Replication Client Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: pg-cluster-replication-cert
+  namespace: dev
+spec:
+  secretName: pg-cluster-replication-tls
+  commonName: streaming_replica        # ◄ Strict CN requirement
+  issuerRef:
+    name: cnpg-client-issuer
+    kind: ClusterIssuer
