@@ -115,7 +115,7 @@ Finally, these policies must be mapped to your Kubernetes workloads via Vault Ro
 
 In this guide, we assume these four pieces are in place.
 
----
+---CloudNativePG & HashiCorp Vault (Part 3): Centralized Vault, Multi-Cluster Topologies, and Cross-Cluster mTLS
 
 
 ## 🤝 The Authentication Handshake (Under the Hood)
@@ -446,6 +446,7 @@ cnpg-server-issuer   True    3s
 ## PHASE 2: Create secrets for a new CNPG cluster ##
 
 `NOTE 1:` from now on, there will be no difference whether we use HTTP or HTTPS
+
 `NOTE 2:` in all the following manifests, we will be working in a namespace called `dev`
 
 We will replace the default user `app` by `admin` which is defined as `an administrator for all CNPG clusters in a specific namespace`

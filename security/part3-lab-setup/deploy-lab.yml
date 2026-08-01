@@ -1,0 +1,608 @@
+---
+# =============================================================================
+# CNPG cross-cluster replication lab (Vault + cert-manager + ESO + MetalLB)
+#
+# Idempotent Ansible translation of part3.md. Run on the Docker host itself.
+#
+#   ansible-playbook deploy-lab.yml -e host_ip=<HOST_IP>
+#
+# PREREQUISITES (NOT installed by this playbook — see part3.md):
+#   docker, kubectl, k3d, helm, cnpg kubectl plugin must all live ON the
+#   Docker host. Ansible core lives on the controller. The iptables tasks
+#   require privilege escalation (sudo) on the Docker host.
+#
+# TARGETING THE DOCKER HOST:
+#   Local host (default):
+#     ansible-playbook deploy-lab.yml -e host_ip=<HOST_IP>
+#   Remote host (define it in an inventory, then select it):
+#     ansible-playbook -i inventory.ini deploy-lab.yml -e target=docker_host
+#   All docker/k3d/kubectl/helm/vault commands run on the selected host, so
+#   its kubeconfig (k3d-cluster-a/-b contexts) is used automatically.
+#
+# Idempotency notes:
+#   * iptables            -> ansible.builtin.iptables (native idempotency)
+#   * docker/k3d/helm     -> guarded by existence checks before create
+#   * vault auth/secrets  -> guarded by `vault {auth,secrets} list`
+#   * pki root CA         -> generated ONLY if no CA exists (never regenerated)
+#   * vault writes        -> guarded by `vault read` so reruns are no-ops
+#   * kubectl apply       -> naturally convergent; changed only on create/config
+# =============================================================================
+# Runs against the Docker host. Defaults to the local machine; pass
+# -e target=<host_or_group> (with -i inventory) to drive a remote Docker host.
+- name: Deploy CNPG cross-cluster lab
+  hosts: "{{ target | default('localhost') }}"
+  gather_facts: true
+
+  vars:
+    # Host LAN IP where the external Vault listens (:8200). Auto-detected from
+    # the default route; override with -e host_ip=<HOST_IP> when needed.
+    host_ip: "{{ ansible_default_ipv4.address | default('') }}"
+
+    vault_container: external-vault
+    vault_addr: "http://127.0.0.1:8200"
+    vault_token: "root"
+    # Prefix used to run the Vault CLI inside the container (no shell needed).
+    vault_exec: "docker exec -e VAULT_ADDR={{ vault_addr }} -e VAULT_TOKEN={{ vault_token }} {{ vault_container }}"
+    vault_exec_i: "docker exec -i -e VAULT_ADDR={{ vault_addr }} -e VAULT_TOKEN={{ vault_token }} {{ vault_container }}"
+
+    cert_manager_url: "https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml"
+    eso_crds_url: "https://raw.githubusercontent.com/external-secrets/external-secrets/main/deploy/crds/bundle.yaml"
+    cnpg_url: "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml"
+    metallb_url: "https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml"
+
+    # The two symmetric clusters. Everything per-cluster loops over this.
+    # api_port pins each cluster's API server to a FIXED host port. Without it,
+    # k3d assigns a random port that changes whenever the serverlb container is
+    # recreated (reboot, LoadBalancer/MetalLB change), which silently stales
+    # both ~/.kube/config AND Vault's kubernetes_host (breaking cert-manager/ESO
+    # auth). Pinning keeps the endpoint stable across restarts.
+    clusters:
+      - name: cluster-a
+        context: k3d-cluster-a
+        vault_path: k8s-cluster-a
+        network: k3d-cluster-a
+        api_port: 6443
+      - name: cluster-b
+        context: k3d-cluster-b
+        vault_path: k8s-cluster-b
+        network: k3d-cluster-b
+        api_port: 6444
+
+    # Vault roles created per cluster (STEP 5.5).
+    vault_cluster_roles:
+      - name: eso
+        args:
+          - bound_service_account_names=external-secrets
+          - bound_service_account_namespaces=external-secrets
+          - policies=eso-policy
+          - ttl=1h
+      - name: cert-manager
+        args:
+          - bound_service_account_names=cert-manager
+          - bound_service_account_namespaces=cert-manager
+          - audience=vault
+          - policies=cert-manager-policy
+          - ttl=1h
+
+  pre_tasks:
+    - name: Ensure host_ip is set
+      ansible.builtin.assert:
+        that:
+          - host_ip is defined
+          - host_ip | length > 0
+        fail_msg: >-
+          host_ip could not be auto-detected. Pass it explicitly:
+          ansible-playbook deploy-lab.yml -e host_ip=<HOST_IP>
+        success_msg: "Using host_ip={{ host_ip }} for Vault reachability."
+
+  tasks:
+    # ========================================================================
+    # STEP 1.1 — Allow Docker container-to-host traffic
+    # ========================================================================
+    - name: Set FORWARD chain default policy to ACCEPT
+      become: true
+      ansible.builtin.iptables:
+        chain: FORWARD
+        policy: ACCEPT
+
+    - name: Allow inbound TCP to Vault on port 8200
+      become: true
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "8200"
+        jump: ACCEPT
+        action: insert
+
+    # ========================================================================
+    # STEP 1.2 — External Vault container (host network)
+    # ========================================================================
+    - name: Inspect external Vault container
+      ansible.builtin.command: "docker inspect {{ vault_container }}"
+      register: vault_inspect
+      failed_when: false
+      changed_when: false
+
+    - name: Create external Vault container
+      ansible.builtin.command: >-
+        docker run -d --name {{ vault_container }} --restart unless-stopped --net host
+        -e VAULT_DEV_ROOT_TOKEN_ID={{ vault_token }}
+        -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+        hashicorp/vault:latest
+      when: vault_inspect.rc != 0
+
+    - name: Ensure external Vault container is running
+      ansible.builtin.command: "docker start {{ vault_container }}"
+      when:
+        - vault_inspect.rc == 0
+        - not (vault_inspect.stdout | from_json)[0].State.Running
+      changed_when: true
+
+    - name: Wait for Vault to be reachable
+      ansible.builtin.command: "{{ vault_exec }} vault status -format=json"
+      register: vault_status
+      until: vault_status.rc == 0
+      retries: 20
+      delay: 3
+      changed_when: false
+      failed_when: false
+
+    # ========================================================================
+    # STEP 1.3 — Two k3d clusters
+    # ========================================================================
+    - name: List existing k3d clusters
+      ansible.builtin.command: "k3d cluster list -o json"
+      register: k3d_list
+      changed_when: false
+
+    - name: Create k3d clusters
+      ansible.builtin.command: >-
+        k3d cluster create {{ item.name }} --agents 1
+        --api-port {{ item.api_port }}
+        --k3s-arg --disable=traefik@server:*
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.name not in (k3d_list.stdout | from_json | map(attribute='name') | list)
+
+    # ========================================================================
+    # STEP 3.1 — cert-manager + RBAC
+    # ========================================================================
+    - name: Install cert-manager
+      ansible.builtin.command: "kubectl apply -f {{ cert_manager_url }} --context {{ item.context }}"
+      register: cm_apply
+      changed_when: "'created' in cm_apply.stdout or 'configured' in cm_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Apply Vault-auth / cert-manager RBAC
+      ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+      args:
+        stdin: |
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: vault-auth-delegator
+          subjects:
+            - kind: ServiceAccount
+              name: external-secrets
+              namespace: external-secrets
+            - kind: ServiceAccount
+              name: cert-manager
+              namespace: cert-manager
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: system:auth-delegator
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: cert-manager-token-request
+          rules:
+            - apiGroups: [""]
+              resources: ["serviceaccounts/token"]
+              verbs: ["create"]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: cert-manager-token-request
+          subjects:
+            - kind: ServiceAccount
+              name: cert-manager
+              namespace: cert-manager
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cert-manager-token-request
+      register: rbac_apply
+      changed_when: "'created' in rbac_apply.stdout or 'configured' in rbac_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    # ========================================================================
+    # STEP 3.2 — external-secrets (CRDs + Helm operator)
+    # ========================================================================
+    - name: Install external-secrets CRDs
+      ansible.builtin.command: "kubectl apply -f {{ eso_crds_url }} --server-side --context {{ item.context }}"
+      register: eso_crds
+      changed_when: "'created' in eso_crds.stdout or 'configured' in eso_crds.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Add external-secrets Helm repo
+      ansible.builtin.command: "helm repo add external-secrets https://charts.external-secrets.io --force-update"
+      register: helm_repo_add
+      changed_when: "'has been added' in helm_repo_add.stdout"
+
+    - name: Update Helm repos
+      ansible.builtin.command: "helm repo update external-secrets"
+      changed_when: false
+
+    - name: Check external-secrets release state
+      ansible.builtin.command: "helm status external-secrets -n external-secrets --kube-context {{ item.context }}"
+      register: eso_release
+      failed_when: false
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Install external-secrets operator
+      ansible.builtin.command: >-
+        helm install external-secrets external-secrets/external-secrets
+        --namespace external-secrets --create-namespace --set installCRDs=false
+        --kube-context {{ item.0.context }}
+      loop: "{{ clusters | zip(eso_release.results) | list }}"
+      loop_control:
+        label: "{{ item.0.context }}"
+      when: item.1.rc != 0
+
+    # ========================================================================
+    # STEP 3.3 — CloudNativePG operator
+    # ========================================================================
+    - name: Install CloudNativePG
+      ansible.builtin.command: "kubectl apply --server-side -f {{ cnpg_url }} --context {{ item.context }}"
+      register: cnpg_apply
+      changed_when: "'created' in cnpg_apply.stdout or 'configured' in cnpg_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    # ========================================================================
+    # STEP 3.4 — MetalLB + per-cluster address pool
+    # ========================================================================
+    - name: Install MetalLB
+      ansible.builtin.command: "kubectl apply -f {{ metallb_url }} --context {{ item.context }}"
+      register: metallb_apply
+      changed_when: "'created' in metallb_apply.stdout or 'configured' in metallb_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Wait for MetalLB controller rollout
+      ansible.builtin.command: >-
+        kubectl --context {{ item.context }} -n metallb-system
+        rollout status deploy/controller --timeout=180s
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Inspect k3d docker networks (derive MetalLB subnet)
+      ansible.builtin.command: "docker network inspect {{ item.network }}"
+      register: net_inspect
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.network }}"
+
+    # Derive a /24 slice (.250.10-.250.100) from each cluster's actual subnet
+    # rather than hard-coding 172.18/172.19 as the walkthrough does.
+    - name: Configure MetalLB address pool + L2 advertisement
+      ansible.builtin.command: "kubectl apply --context {{ item.0.context }} -f -"
+      args:
+        stdin: |
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: first-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+            - {{ prefix }}.250.10-{{ prefix }}.250.100
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: empty
+            namespace: metallb-system
+      vars:
+        prefix: "{{ ((item.1.stdout | from_json)[0].IPAM.Config[0].Subnet).split('/')[0].split('.')[:2] | join('.') }}"
+      register: metallb_pool
+      changed_when: "'created' in metallb_pool.stdout or 'configured' in metallb_pool.stdout"
+      # Retry: the validating webhook may not be serving immediately.
+      until: metallb_pool.rc == 0
+      retries: 10
+      delay: 6
+      loop: "{{ clusters | zip(net_inspect.results) | list }}"
+      loop_control:
+        label: "{{ item.0.context }}"
+
+    # ========================================================================
+    # STEP 5 — Multi-cluster Vault authentication
+    # ========================================================================
+    - name: List Vault secrets engines
+      ansible.builtin.command: "{{ vault_exec }} vault secrets list -format=json"
+      register: vault_secrets
+      changed_when: false
+
+    - name: Enable kv-v2 secrets engine
+      ansible.builtin.command: "{{ vault_exec }} vault secrets enable -path=kv kv-v2"
+      when: "'kv/' not in (vault_secrets.stdout | from_json)"
+
+    - name: Enable pki secrets engine
+      ansible.builtin.command: "{{ vault_exec }} vault secrets enable pki"
+      when: "'pki/' not in (vault_secrets.stdout | from_json)"
+
+    - name: List Vault auth methods
+      ansible.builtin.command: "{{ vault_exec }} vault auth list -format=json"
+      register: vault_auths
+      changed_when: false
+
+    - name: Enable Kubernetes auth path per cluster
+      ansible.builtin.command: "{{ vault_exec }} vault auth enable -path={{ item.vault_path }} kubernetes"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.vault_path }}"
+      when: (item.vault_path + '/') not in (vault_auths.stdout | from_json)
+
+    # --- STEP 5.1/5.2/5.5 — configure each auth path (guarded, runs once) ----
+    - name: Read existing Vault auth config per cluster
+      ansible.builtin.command: "{{ vault_exec }} vault read auth/{{ item.vault_path }}/config"
+      register: auth_cfg
+      failed_when: false
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.vault_path }}"
+
+    - name: Get k3d API server endpoint per cluster
+      ansible.builtin.command: >-
+        kubectl config view --context {{ item.context }} --minify
+        -o jsonpath={.clusters[0].cluster.server}
+      register: api_servers
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Extract cluster CA certificate
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        kubectl config view --raw --context {{ item.context }} --minify
+        -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d
+      register: ca_certs
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Stage CA certificate on host
+      become: true
+      ansible.builtin.copy:
+        dest: "/tmp/ca-{{ item.0.name }}.crt"
+        content: "{{ item.1.stdout }}\n"
+        mode: "0644"
+      loop: "{{ clusters | zip(ca_certs.results) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}"
+
+    - name: Copy CA certificate into Vault container
+      ansible.builtin.command: "docker cp /tmp/ca-{{ item.0.name }}.crt {{ vault_container }}:/tmp/ca-{{ item.0.name }}.crt"
+      loop: "{{ clusters | zip(auth_cfg.results) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}"
+      when: item.1.rc != 0
+
+    - name: Generate long-lived token reviewer JWT
+      ansible.builtin.command: >-
+        kubectl create token cert-manager -n cert-manager
+        --duration=87600h --context {{ item.0.context }}
+      register: reviewer_tokens
+      no_log: true
+      changed_when: item.1.rc != 0
+      loop: "{{ clusters | zip(auth_cfg.results) | list }}"
+      loop_control:
+        label: "{{ item.0.context }}"
+      when: item.1.rc != 0
+
+    - name: Configure Vault Kubernetes auth endpoint
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write auth/{{ item.0.vault_path }}/config
+        kubernetes_host=https://127.0.0.1:{{ item.2.stdout.split(':')[-1] }}
+        kubernetes_ca_cert=@/tmp/ca-{{ item.0.name }}.crt
+        token_reviewer_jwt={{ item.3.stdout }}
+        disable_iss_validation=true
+      no_log: true
+      loop: "{{ clusters | zip(auth_cfg.results, api_servers.results, reviewer_tokens.results) | list }}"
+      loop_control:
+        label: "{{ item.0.vault_path }}"
+      when: item.1.rc != 0
+
+    # --- STEP 5.5 — per-cluster Vault roles -----------------------------------
+    - name: Read existing Vault cluster roles
+      ansible.builtin.command: "{{ vault_exec }} vault read auth/{{ item.0.vault_path }}/role/{{ item.1.name }}"
+      register: role_checks
+      failed_when: false
+      changed_when: false
+      loop: "{{ clusters | product(vault_cluster_roles) | list }}"
+      loop_control:
+        label: "{{ item.0.vault_path }}/{{ item.1.name }}"
+
+    - name: Create Vault cluster roles
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write auth/{{ item.0.0.vault_path }}/role/{{ item.0.1.name }}
+        {{ item.0.1.args | join(' ') }}
+      loop: "{{ (clusters | product(vault_cluster_roles) | list) | zip(role_checks.results) | list }}"
+      loop_control:
+        label: "{{ item.0.0.vault_path }}/{{ item.0.1.name }}"
+      when: item.1.rc != 0
+
+    # --- STEP 5.7 — PKI root CA (generated ONCE, never regenerated) -----------
+    - name: Check for existing PKI root CA
+      ansible.builtin.command: "{{ vault_exec }} vault read -field=certificate pki/cert/ca"
+      register: pki_ca
+      failed_when: false
+      changed_when: false
+
+    - name: Generate PKI root CA
+      ansible.builtin.command: "{{ vault_exec }} vault write pki/root/generate/internal common_name=cnpg-root-ca ttl=87600h"
+      when: pki_ca.rc != 0 or 'BEGIN CERTIFICATE' not in pki_ca.stdout
+
+    # --- STEP 5.8 — PKI roles -------------------------------------------------
+    - name: Check PKI server role
+      ansible.builtin.command: "{{ vault_exec }} vault read pki/roles/cnpg-server-role"
+      register: pki_server_role
+      failed_when: false
+      changed_when: false
+
+    - name: Create PKI server role
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write pki/roles/cnpg-server-role
+        allowed_domains=svc,svc.cluster.local allow_subdomains=true
+        allow_any_name=false enforce_hostnames=true require_cn=false max_ttl=720h
+      when: pki_server_role.rc != 0
+
+    - name: Check PKI client role
+      ansible.builtin.command: "{{ vault_exec }} vault read pki/roles/cnpg-client-role"
+      register: pki_client_role
+      failed_when: false
+      changed_when: false
+
+    - name: Create PKI client role
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write pki/roles/cnpg-client-role
+        allow_any_name=true enforce_hostnames=false require_cn=true max_ttl=720h
+      when: pki_client_role.rc != 0
+
+    # --- STEP 5.9 — Policies --------------------------------------------------
+    - name: Check eso-policy
+      ansible.builtin.command: "{{ vault_exec }} vault policy read eso-policy"
+      register: eso_policy
+      failed_when: false
+      changed_when: false
+
+    - name: Write eso-policy
+      ansible.builtin.command: "{{ vault_exec_i }} vault policy write eso-policy -"
+      args:
+        stdin: |
+          path "kv/data/cnpg/*" {
+            capabilities = ["read"]
+          }
+      when: eso_policy.rc != 0
+
+    - name: Check cert-manager-policy
+      ansible.builtin.command: "{{ vault_exec }} vault policy read cert-manager-policy"
+      register: cm_policy
+      failed_when: false
+      changed_when: false
+
+    - name: Write cert-manager-policy
+      ansible.builtin.command: "{{ vault_exec_i }} vault policy write cert-manager-policy -"
+      args:
+        stdin: |
+          path "pki/sign/cnpg-*" {
+            capabilities = ["create", "update"]
+          }
+      when: cm_policy.rc != 0
+
+    # ========================================================================
+    # STEP 4 — Vault backends & issuers (needs cert-manager/ESO webhooks up)
+    # ========================================================================
+    - name: Wait for cert-manager webhooks
+      ansible.builtin.command: >-
+        kubectl --context {{ item.0.context }} -n cert-manager
+        rollout status deploy/{{ item.1 }} --timeout=180s
+      changed_when: false
+      loop: "{{ clusters | product(['cert-manager', 'cert-manager-webhook', 'cert-manager-cainjector']) | list }}"
+      loop_control:
+        label: "{{ item.0.context }}/{{ item.1 }}"
+
+    - name: Wait for external-secrets webhook
+      ansible.builtin.command: >-
+        kubectl --context {{ item.context }} -n external-secrets
+        rollout status deploy/external-secrets-webhook --timeout=180s
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Deploy ClusterSecretStore + ClusterIssuers
+      ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+      args:
+        stdin: |
+          apiVersion: external-secrets.io/v1
+          kind: ClusterSecretStore
+          metadata:
+            name: vault-backend
+          spec:
+            provider:
+              vault:
+                server: "http://{{ host_ip }}:8200"
+                path: "kv"
+                version: "v2"
+                auth:
+                  kubernetes:
+                    mountPath: "{{ item.vault_path }}"
+                    role: "eso"
+                    serviceAccountRef:
+                      name: "external-secrets"
+                      namespace: "external-secrets"
+          ---
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: cnpg-server-issuer
+          spec:
+            vault:
+              server: "http://{{ host_ip }}:8200"
+              path: "pki/sign/cnpg-server-role"
+              auth:
+                kubernetes:
+                  mountPath: "/v1/auth/{{ item.vault_path }}"
+                  role: "cert-manager"
+                  serviceAccountRef:
+                    name: "cert-manager"
+                    audiences:
+                      - "vault"
+          ---
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: cnpg-client-issuer
+          spec:
+            vault:
+              server: "http://{{ host_ip }}:8200"
+              path: "pki/sign/cnpg-client-role"
+              auth:
+                kubernetes:
+                  mountPath: "/v1/auth/{{ item.vault_path }}"
+                  role: "cert-manager"
+                  serviceAccountRef:
+                    name: "cert-manager"
+                    audiences:
+                      - "vault"
+      register: issuers_apply
+      changed_when: "'created' in issuers_apply.stdout or 'configured' in issuers_apply.stdout"
+      # Retry: cert-manager webhook may still be settling right after rollout.
+      until: issuers_apply.rc == 0
+      retries: 10
+      delay: 6
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"

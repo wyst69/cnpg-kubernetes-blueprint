@@ -1,0 +1,104 @@
+---
+# =============================================================================
+# Teardown for the CNPG cross-cluster lab (reverses deploy-lab.yml).
+#
+# Idempotent: safe to run repeatedly and safe to run when the lab is already
+# partially or fully gone. Deleting the k3d clusters takes cert-manager, ESO,
+# CloudNativePG, MetalLB, the issuers/backends and RBAC with them, so those
+# in-cluster objects need no separate cleanup.
+#
+# TARGETING THE DOCKER HOST (same convention as deploy-lab.yml):
+#   Local:  ansible-playbook teardown-lab.yml
+#   Remote: ansible-playbook -i inventory.ini teardown-lab.yml -e target=docker_host
+#
+# This is destructive (deletes both clusters and all their data). You are
+# prompted to confirm; bypass the prompt in automation with -e confirm=yes.
+# =============================================================================
+- name: Teardown CNPG cross-cluster lab
+  hosts: "{{ target | default('localhost') }}"
+  gather_facts: false
+
+  vars_prompt:
+    - name: confirm
+      prompt: "This DELETES both k3d clusters (ALL data) and the Vault container. Type 'yes' to proceed"
+      private: false
+
+  vars:
+    vault_container: external-vault
+    clusters:
+      - name: cluster-a
+        network: k3d-cluster-a
+      - name: cluster-b
+        network: k3d-cluster-b
+
+  pre_tasks:
+    - name: Require explicit confirmation
+      ansible.builtin.assert:
+        that: confirm | lower == 'yes'
+        fail_msg: "Teardown aborted (confirmation was not 'yes')."
+        success_msg: "Confirmed — tearing down the lab."
+
+  tasks:
+    # ------------------------------------------------------------------------
+    # k3d clusters (also removes their docker networks and kube contexts)
+    # ------------------------------------------------------------------------
+    - name: List existing k3d clusters
+      ansible.builtin.command: "k3d cluster list -o json"
+      register: k3d_list
+      changed_when: false
+
+    - name: Delete k3d clusters
+      ansible.builtin.command: "k3d cluster delete {{ item.name }}"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.name in (k3d_list.stdout | from_json | map(attribute='name') | list)
+
+    # ------------------------------------------------------------------------
+    # External Vault container
+    # ------------------------------------------------------------------------
+    - name: Inspect Vault container
+      ansible.builtin.command: "docker inspect {{ vault_container }}"
+      register: vault_inspect
+      failed_when: false
+      changed_when: false
+
+    - name: Remove Vault container
+      ansible.builtin.command: "docker rm -f {{ vault_container }}"
+      when: vault_inspect.rc == 0
+
+    # ------------------------------------------------------------------------
+    # Host-side leftovers
+    # ------------------------------------------------------------------------
+    - name: Remove inbound Vault iptables rule (port 8200)
+      become: true
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "8200"
+        jump: ACCEPT
+        state: absent
+      # NOTE: the FORWARD chain default policy set to ACCEPT during deploy is
+      # intentionally NOT reverted — its prior value is unknown and other
+      # Docker workloads may rely on it. Restore it manually if you must.
+
+    - name: Remove staged CA certificates
+      become: true
+      ansible.builtin.file:
+        path: "/tmp/ca-{{ item.name }}.crt"
+        state: absent
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: List Helm repositories
+      ansible.builtin.command: "helm repo list -o json"
+      register: helm_repos
+      failed_when: false
+      changed_when: false
+
+    - name: Remove external-secrets Helm repo
+      ansible.builtin.command: "helm repo remove external-secrets"
+      when:
+        - helm_repos.rc == 0
+        - "'external-secrets' in (helm_repos.stdout | from_json | map(attribute='name') | list)"
