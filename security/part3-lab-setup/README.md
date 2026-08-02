@@ -95,3 +95,9 @@ both issuers as `Ready`:
 kubectl get clustersecretstore,clusterissuer --context k3d-cluster-a
 kubectl get clustersecretstore,clusterissuer --context k3d-cluster-b
 ```
+
+If `kubectl` reports `connection refused` after a reboot, or after destroying/recreating the lab, the kubeconfig picked up a stale API port — refresh it with:
+
+```bash
+k3d kubeconfig merge cluster-a cluster-b --kubeconfig-merge-default
+```
