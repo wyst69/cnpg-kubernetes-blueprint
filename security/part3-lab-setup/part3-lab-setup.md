@@ -43,10 +43,21 @@ k3d cluster create cluster-b \
   --k3s-arg "--disable=traefik@server:*"
 ```
 
+### 4. Make cluster B able to communicate with cluster A
+```bash
+# 1. Dynamically connect all Cluster B containers to Cluster A's Docker network
+for container in $(docker ps --filter "name=k3d-cluster-b" --format "{{.Names}}"); do
+  docker network connect k3d-cluster-a "$container" || true
+done
+
+# 2. Allow Docker to forward traffic between custom bridge networks
+sudo iptables -I DOCKER-USER -j ACCEPT
+```
+
 Note: Disabling traefik saves ~150MB of RAM per cluster since we don't need an HTTP Ingress controller for database replication
 
 
-## STEP 3: Install Core Operators on Both Servers
+## STEP 2: Install Core Operators on Both Servers
 
 ### 1- Install cert-manager & RBAC
 
@@ -424,7 +435,7 @@ ipaddresspool.metallb.io/first-pool created
 l2advertisement.metallb.io/empty created
 ```
 
-## STEP 5: Multi-cluster Vault Authentication
+## STEP 3: Multi-cluster Vault Authentication
 
 Since Vault is running outside the clusters on `<HOST_IP>`, it needs a way to authenticate ServiceAccount tokens from both `cluster-a` and `cluster-b`.
 
