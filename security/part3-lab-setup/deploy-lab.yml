@@ -165,6 +165,19 @@
         label: "{{ item.name }}"
       when: item.name not in (k3d_list.stdout | from_json | map(attribute='name') | list)
 
+    - name: Wait for k3d node containers to be running
+      ansible.builtin.command: "docker inspect -f '{{ '{{' }}.State.Running{{ '}}' }}' {{ item }}"
+      register: node_check
+      until: node_check.rc == 0 and node_check.stdout == "true"
+      retries: 20
+      delay: 3
+      changed_when: false
+      loop:
+        - k3d-cluster-a-server-0
+        - k3d-cluster-a-agent-0
+        - k3d-cluster-b-server-0
+        - k3d-cluster-b-agent-0
+
     - name: Connect Cluster A nodes to Cluster B Docker network
       community.docker.docker_network:
         name: k3d-cluster-b
@@ -410,6 +423,8 @@
         set -o pipefail;
         kubectl config view --raw --context {{ item.context }} --minify
         -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d
+      args:
+        executable: /bin/bash
       register: ca_certs
       changed_when: false
       loop: "{{ clusters }}"
