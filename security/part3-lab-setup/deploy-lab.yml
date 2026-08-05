@@ -167,19 +167,19 @@
 
     - name: Connect Cluster A nodes to Cluster B Docker network
       community.docker.docker_network:
-      name: k3d-cluster-b
-      connected:
-        - k3d-cluster-a-server-0
-        - k3d-cluster-a-agent-0
-      appends: true
+        name: k3d-cluster-b
+        connected:
+          - k3d-cluster-a-server-0
+          - k3d-cluster-a-agent-0
+        appends: true
 
     - name: Connect Cluster B nodes to Cluster A Docker network
       community.docker.docker_network:
-      name: k3d-cluster-a
-      connected:
-        - k3d-cluster-b-server-0
-        - k3d-cluster-b-agent-0
-      appends: true
+        name: k3d-cluster-a
+        connected:
+          - k3d-cluster-b-server-0
+          - k3d-cluster-b-agent-0
+        appends: true
 
     - name: Allow inter-bridge container traffic in iptables
       ansible.builtin.iptables:

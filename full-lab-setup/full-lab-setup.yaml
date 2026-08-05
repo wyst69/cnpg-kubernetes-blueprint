@@ -1,0 +1,928 @@
+- name: Deploy CNPG cross-cluster lab
+  hosts: "{{ target | default('localhost') }}"
+  gather_facts: true
+
+  vars:
+    # Host LAN IP where external services can be reached if needed.
+    host_ip: "{{ ansible_default_ipv4.address | default('') }}"
+
+    # Shared Docker Network for all lab components
+    lab_network: "multi-cluster-net"
+    lab_subnet: "172.20.0.0/16"
+
+    # Vault Configuration
+    vault_container: external-vault
+    vault_addr: "http://127.0.0.1:8200"
+    vault_token: "root"
+    vault_exec: "docker exec -e VAULT_ADDR={{ vault_addr }} -e VAULT_TOKEN={{ vault_token }} {{ vault_container }}"
+    vault_exec_i: "docker exec -i -e VAULT_ADDR={{ vault_addr }} -e VAULT_TOKEN={{ vault_token }} {{ vault_container }}"
+
+    # MinIO (S3 Engine) Configuration
+    minio_container: minio-s3
+    minio_root_user: minioadmin
+    minio_root_password: minioadmin
+
+    # Manifest URLs
+    cert_manager_url: "https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml"
+    eso_crds_url: "https://raw.githubusercontent.com/external-secrets/external-secrets/main/deploy/crds/bundle.yaml"
+    cnpg_url: "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml"
+    barman_plugin_url: "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.13.0/manifest.yaml"
+    metallb_url: "https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml"
+    prom_crds_url: "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v0.75.0/example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml"
+
+    # Symmetrical k3d clusters attached to the shared network
+    clusters:
+      - name: cluster-a
+        context: k3d-cluster-a
+        vault_path: k8s-cluster-a
+        api_port: 6443
+        metallb_range: "172.20.100.1-172.20.100.50"
+      - name: cluster-b
+        context: k3d-cluster-b
+        vault_path: k8s-cluster-b
+        api_port: 6444
+        metallb_range: "172.20.200.1-172.20.200.50"
+
+    # Vault roles created per cluster
+    vault_cluster_roles:
+      - name: eso
+        args:
+          - bound_service_account_names=external-secrets
+          - bound_service_account_namespaces=external-secrets
+          - policies=eso-policy
+          - ttl=1h
+      - name: cert-manager
+        args:
+          - bound_service_account_names=cert-manager
+          - bound_service_account_namespaces=cert-manager
+          - audience=vault
+          - policies=cert-manager-policy
+          - ttl=1h
+
+  pre_tasks:
+    - name: Ensure host_ip is set
+      ansible.builtin.assert:
+        that:
+          - host_ip is defined
+          - host_ip | length > 0
+        fail_msg: >-
+          host_ip could not be auto-detected. Pass it explicitly:
+          ansible-playbook deploy-lab.yml -e host_ip=<HOST_IP>
+        success_msg: "Using host_ip={{ host_ip }} for Vault reachability."
+
+  tasks:
+    # ========================================================================
+    # STEP 1.1 — Create Shared Docker Network & Firewall Rules
+    # ========================================================================
+    - name: Create shared lab Docker network
+      community.docker.docker_network:
+        name: "{{ lab_network }}"
+        driver: bridge
+        ipam_config:
+          - subnet: "{{ lab_subnet }}"
+
+    - name: Set FORWARD chain default policy to ACCEPT
+      become: true
+      ansible.builtin.iptables:
+        chain: FORWARD
+        policy: ACCEPT
+
+    - name: Allow inbound TCP for Vault and MinIO
+      become: true
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ item }}"
+        jump: ACCEPT
+        action: insert
+      loop:
+        - "8200"  # Vault API
+        - "9000"  # MinIO S3 API
+        - "9001"  # MinIO Console
+
+    - name: Increase inotify limits for multi-cluster k3d nodes
+      become: true
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        sysctl_set: true
+        reload: true
+      loop:
+        - { name: 'fs.inotify.max_user_watches', value: '524288' }
+        - { name: 'fs.inotify.max_user_instances', value: '512' }   
+
+    # ========================================================================
+    # STEP 1.2 — External Vault Container
+    # ========================================================================
+    - name: Inspect external Vault container
+      ansible.builtin.command: "docker inspect {{ vault_container }}"
+      register: vault_inspect
+      failed_when: false
+      changed_when: false
+
+    - name: Create external Vault container (File Storage)
+      ansible.builtin.command: >-
+        docker run -d --name {{ vault_container }} --restart unless-stopped
+        --cap-add=IPC_LOCK
+        -v vault-data:/vault/file
+        --net {{ lab_network }} -p 8200:8200
+        -e 'VAULT_LOCAL_CONFIG={"disable_mlock": true, "storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": "1"}}, "ui": true}'
+        hashicorp/vault:latest server
+      when: vault_inspect.rc != 0
+
+    - name: Ensure external Vault container is running
+      ansible.builtin.command: "docker start {{ vault_container }}"
+      when:
+        - vault_inspect.rc == 0
+        - not (vault_inspect.stdout | from_json)[0].State.Running
+      changed_when: true
+
+    - name: Check Vault health status
+      ansible.builtin.command: "{{ vault_exec }} vault status -format=json"
+      register: vault_status_raw
+      failed_when: false
+      changed_when: false
+      until: vault_status_raw.stdout | default('') | length > 0
+      retries: 12
+      delay: 2
+
+    - name: Set Vault status fact
+      ansible.builtin.set_fact:
+        vault_status: "{{ vault_status_raw.stdout | from_json }}"
+
+    # --- First-time setup: Initialize Vault and save keys persistently ------
+    - name: Initialize Vault (first run only)
+      ansible.builtin.command: "{{ vault_exec }} vault operator init -key-shares=1 -key-threshold=1 -format=json"
+      register: vault_init_raw
+      when: not vault_status.initialized
+
+    - name: Save Vault keys persistently in user home directory
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/.vault-keys.json"
+        content: "{{ vault_init_raw.stdout }}"
+        mode: '0600'
+      when: not vault_status.initialized
+
+    # --- Read saved keys & unseal after host reboot ---------------------------
+    - name: Read local Vault keys
+      ansible.builtin.slurp:
+        src: "{{ ansible_env.HOME }}/.vault-keys.json"
+      register: vault_keys_file
+
+    - name: Set Vault credentials facts
+      ansible.builtin.set_fact:
+        vault_unseal_key: "{{ (vault_keys_file.content | b64decode | from_json).unseal_keys_b64[0] }}"
+        vault_token: "{{ (vault_keys_file.content | b64decode | from_json).root_token }}"
+
+    - name: Unseal Vault
+      ansible.builtin.command: "{{ vault_exec }} vault operator unseal {{ vault_unseal_key }}"
+      when: vault_status.sealed
+
+    # ========================================================================
+    # STEP 1.3 — MinIO (S3 WAL Archive) Container
+    # ========================================================================
+    - name: Inspect MinIO container
+      ansible.builtin.command: "docker inspect {{ minio_container }}"
+      register: minio_inspect
+      failed_when: false
+      changed_when: false
+
+    - name: Create MinIO container with persistent storage
+      ansible.builtin.command: >-
+        docker run -d --name {{ minio_container }} --restart unless-stopped
+        -v minio-data:/data
+        --net {{ lab_network }} -p 9000:9000 -p 9001:9001
+        -e MINIO_ROOT_USER={{ minio_root_user }}
+        -e MINIO_ROOT_PASSWORD={{ minio_root_password }}
+        minio/minio server /data --console-address ":9001"
+      when: minio_inspect.rc != 0
+
+    - name: Ensure MinIO container is running
+      ansible.builtin.command: "docker start {{ minio_container }}"
+      when:
+        - minio_inspect.rc == 0
+        - not (minio_inspect.stdout | from_json)[0].State.Running
+      changed_when: true
+
+    # --- CLI Developer Ergonomics ----------------------------------
+    - name: Download MinIO Client (mc) binary
+      become: true
+      ansible.builtin.get_url:
+        url: "https://dl.min.io/client/mc/release/linux-amd64/mc"
+        dest: "/usr/local/bin/mc"
+        mode: "0755"
+
+    - name: Ensure jq is installed
+      become: true
+      ansible.builtin.apt:
+        name: jq
+        state: present
+
+    - name: Configure MinIO CLI alias
+      ansible.builtin.command: >-
+        mc alias set minio http://127.0.0.1:9000 {{ minio_root_user }} {{ minio_root_password }}
+      changed_when: false
+
+    - name: Configure Vault and kubectl environment in ~/.bashrc
+      ansible.builtin.blockinfile:
+        path: "/home/{{ ansible_env.SUDO_USER | default(ansible_user_id) }}/.bashrc"
+        owner: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
+        group: "{{ ansible_env.SUDO_USER | default(ansible_user_id) }}"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK: LAB CLI ENVS"
+        block: |
+          # --- Vault Environment ---
+          export VAULT_ADDR="http://127.0.0.1:8200"
+          if [ -f "$HOME/.vault-keys.json" ]; then
+            export VAULT_TOKEN="$(jq -r '.root_token' "$HOME/.vault-keys.json" 2>/dev/null)"
+          fi
+
+          # --- Kubectl Shortcuts ---
+          alias k='kubectl'
+          alias kns='kubectl config set-context $(kubectl config current-context) --namespace'
+          alias ksc='kubectl config use-context'
+          
+          # Instant Cluster Hopping
+          alias kca='kubectl config use-context k3d-cluster-a'
+          alias kcb='kubectl config use-context k3d-cluster-b'
+
+          # --- Autocompletion ---
+          if command -v kubectl &> /dev/null; then
+            source <(kubectl completion bash)
+            complete -o default -F __start_kubectl k
+            complete -o default -F __start_kubectl kns
+            complete -o default -F __start_kubectl ksc
+          fi
+
+    # ========================================================================
+    # STEP — Export Kubeconfig to Regular User Home
+    # ========================================================================
+    - name: Merge k3d kubeconfig into user home directory
+      ansible.builtin.command: >-
+        k3d kubeconfig merge --all --output /home/{{ ansible_env.SUDO_USER | default('sebastien') }}/.kube/config
+      changed_when: false
+
+    - name: Set correct permissions on ~/.kube/config
+      ansible.builtin.file:
+        path: "/home/{{ ansible_env.SUDO_USER | default('sebastien') }}/.kube/config"
+        owner: "{{ ansible_env.SUDO_USER | default('sebastien') }}"
+        group: "{{ ansible_env.SUDO_USER | default('sebastien') }}"
+        mode: '0600'
+
+    # ========================================================================
+    # STEP 1.4 — Two k3d Clusters on Shared Network
+    # ========================================================================
+    - name: List existing k3d clusters
+      ansible.builtin.command: "k3d cluster list -o json"
+      register: k3d_list
+      changed_when: false
+
+    - name: Create k3d clusters
+      ansible.builtin.command: >-
+        k3d cluster create {{ item.name }}
+        --servers 1
+        --agents 3
+        --network {{ lab_network }}
+        --api-port {{ item.api_port }}
+        --k3s-arg --disable=traefik@server:*
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.name not in (k3d_list.stdout | from_json | map(attribute='name') | list)
+
+    # ========================================================================
+    # STEP 1.5 — SigNoz APM via Foundry (prod_otlp profile)
+    # ========================================================================
+    - name: Ensure foundryctl CLI is installed
+      ansible.builtin.get_url:
+        url: "https://signoz.io/foundry.sh"
+        dest: "/tmp/foundry.sh"
+        mode: '0755'
+      when: lab_profile == "prod_otlp"
+
+    - name: Run foundryctl installer
+      ansible.builtin.command: "/tmp/foundry.sh"
+      when: lab_profile == "prod_otlp"
+      changed_when: false
+
+    - name: Ensure SigNoz directory exists on host
+      ansible.builtin.file:
+        path: "{{ ansible_facts['env']['HOME'] }}/signoz"
+        state: directory
+        mode: '0755'
+      when: lab_profile == "prod_otlp"
+
+    - name: Write SigNoz casting.yaml manifest
+      ansible.builtin.copy:
+        dest: "{{ ansible_facts['env']['HOME'] }}/signoz/casting.yaml"
+        content: |
+          apiVersion: v1alpha1
+          kind: Installation
+          metadata:
+            name: signoz
+          spec:
+            deployment:
+              flavor: compose
+              mode: docker
+        mode: '0644'
+      when: lab_profile == "prod_otlp"
+
+    - name: Generate SigNoz Docker Compose stack via foundryctl forge
+      ansible.builtin.command:
+        cmd: "{{ ansible_facts['env']['HOME'] }}/.local/bin/foundryctl forge -f casting.yaml"
+        chdir: "{{ ansible_facts['env']['HOME'] }}/signoz"
+      when: lab_profile == "prod_otlp"
+      changed_when: true
+
+    - name: Start SigNoz Docker Compose stack on shared lab network
+      community.docker.docker_compose_v2:
+        project_src: "{{ ansible_facts['env']['HOME'] }}/signoz/pours/deployment"
+        state: present
+      environment:
+        DOCKER_NETWORKS: "{{ lab_network }}"
+      when: lab_profile == "prod_otlp"
+
+    # ========================================================================
+    # STEP 3.0 — CSI HostPath Driver & VolumeSnapshot Support
+    # ========================================================================
+    - name: Apply VolumeSnapshot CRDs
+      ansible.builtin.command: "kubectl apply -f {{ item.1 }} --context {{ item.0.context }}"
+      loop: >-
+        {{ clusters | product([
+          'https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.2.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml',
+          'https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.2.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml',
+          'https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.2.0/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml'
+        ]) | list }}
+      loop_control:
+        label: "{{ item.0.context }} -> {{ item.1 | basename }}"
+      register: snap_crds
+      changed_when: "'created' in snap_crds.stdout or 'configured' in snap_crds.stdout"
+
+    - name: Deploy VolumeSnapshot Controller
+      ansible.builtin.command: >-
+        kubectl apply --context {{ item.context }}
+        -f https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/v8.2.0/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+      register: snap_ctrl
+      changed_when: "'created' in snap_ctrl.stdout or 'configured' in snap_ctrl.stdout"
+
+    - name: Clone CSI HostPath driver repository
+      ansible.builtin.git:
+        repo: 'https://github.com/kubernetes-csi/csi-driver-host-path.git'
+        dest: "/tmp/csi-driver-host-path"
+        version: master
+        depth: 1
+
+    - name: Deploy HostPath CSI Driver via official deploy.sh script
+      ansible.builtin.shell: |
+        kubectl config use-context {{ item.context }}
+        ./deploy/kubernetes-latest/deploy.sh
+      args:
+        chdir: "/tmp/csi-driver-host-path"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+      register: csi_driver
+      changed_when: "'created' in csi_driver.stdout or 'configured' in csi_driver.stdout"
+
+    - name: Create StorageClass (resizable) and VolumeSnapshotClass
+      ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+      args:
+        stdin: |
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: csi-hostpath-sc
+            annotations:
+              storageclass.kubernetes.io/is-default-class: "true"
+          provisioner: hostpath.csi.k8s.io
+          allowVolumeExpansion: true
+          reclaimPolicy: Delete
+          volumeBindingMode: Immediate
+          ---
+          apiVersion: snapshot.storage.k8s.io/v1
+          kind: VolumeSnapshotClass
+          metadata:
+            name: csi-hostpath-snapclass
+            annotations:
+              snapshot.storage.kubernetes.io/is-default-class: "true"
+          driver: hostpath.csi.k8s.io
+          deletionPolicy: Delete
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+      register: csi_classes
+      changed_when: "'created' in csi_classes.stdout or 'configured' in csi_classes.stdout"
+
+    - name: Remove default status from k3s local-path StorageClass
+      ansible.builtin.command: >-
+        kubectl annotate storageclass local-path
+        --context {{ item.context }}
+        storageclass.kubernetes.io/is-default-class-
+        --overwrite
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+      failed_when: false
+
+    # ========================================================================
+    # STEP 3.1 — cert-manager + RBAC
+    # ========================================================================
+    - name: Install cert-manager
+      ansible.builtin.command: "kubectl apply -f {{ cert_manager_url }} --context {{ item.context }}"
+      register: cm_apply
+      changed_when: "'created' in cm_apply.stdout or 'configured' in cm_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Apply Vault-auth / cert-manager RBAC
+      ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+      args:
+        stdin: |
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: vault-auth-delegator
+          subjects:
+            - kind: ServiceAccount
+              name: external-secrets
+              namespace: external-secrets
+            - kind: ServiceAccount
+              name: cert-manager
+              namespace: cert-manager
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: system:auth-delegator
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: cert-manager-token-request
+          rules:
+            - apiGroups: [""]
+              resources: ["serviceaccounts/token"]
+              verbs: ["create"]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: cert-manager-token-request
+          subjects:
+            - kind: ServiceAccount
+              name: cert-manager
+              namespace: cert-manager
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cert-manager-token-request
+      register: rbac_apply
+      changed_when: "'created' in rbac_apply.stdout or 'configured' in rbac_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    # ========================================================================
+    # STEP 3.2 — external-secrets (CRDs + Helm operator)
+    # ========================================================================
+    - name: Install external-secrets CRDs
+      ansible.builtin.command: "kubectl apply -f {{ eso_crds_url }} --server-side --context {{ item.context }}"
+      register: eso_crds
+      changed_when: "'created' in eso_crds.stdout or 'configured' in eso_crds.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Add external-secrets Helm repo
+      ansible.builtin.command: "helm repo add external-secrets https://charts.external-secrets.io --force-update"
+      register: helm_repo_add
+      changed_when: "'has been added' in helm_repo_add.stdout"
+
+    - name: Update Helm repos
+      ansible.builtin.command: "helm repo update external-secrets"
+      changed_when: false
+
+    - name: Check external-secrets release state
+      ansible.builtin.command: "helm status external-secrets -n external-secrets --kube-context {{ item.context }}"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Install external-secrets operator
+      ansible.builtin.command: >-
+        helm install external-secrets external-secrets/external-secrets
+        --namespace external-secrets --create-namespace --set installCRDs=false
+        --kube-context {{ item.0.context }}
+      loop: "{{ clusters | zip(eso_release.results) | list }}"
+      loop_control:
+        label: "{{ item.0.context }}"
+      when: item.1.rc != 0
+
+    # ========================================================================
+    # STEP 3.3 — CloudNativePG operator
+    # ========================================================================
+    - name: Install CloudNativePG
+      ansible.builtin.command: "kubectl apply --server-side -f {{ cnpg_url }} --context {{ item.context }}"
+      register: cnpg_apply
+      changed_when: "'created' in cnpg_apply.stdout or 'configured' in cnpg_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    # ========================================================================
+    # STEP 3.4 — MetalLB + per-cluster address pool
+    # ========================================================================
+    - name: Install MetalLB
+      ansible.builtin.command: "kubectl apply -f {{ metallb_url }} --context {{ item.context }}"
+      register: metallb_apply
+      changed_when: "'created' in metallb_apply.stdout or 'configured' in metallb_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Wait for MetalLB controller rollout
+      ansible.builtin.command: >-
+        kubectl --context {{ item.context }} -n metallb-system
+        rollout status deploy/controller --timeout=180s
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Configure MetalLB address pool + L2 advertisement
+      ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+      args:
+        stdin: |
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: first-pool
+            namespace: metallb-system
+          spec:
+            addresses:
+            - {{ item.metallb_range }}
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: empty
+            namespace: metallb-system
+      register: metallb_pool
+      changed_when: "'created' in metallb_pool.stdout or 'configured' in metallb_pool.stdout"
+      until: metallb_pool.rc == 0
+      retries: 10
+      delay: 6
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+# ========================================================================
+# STEP 3.5 — Barman Cloud CNPG-I Plugin
+# ========================================================================
+    - name: Install Barman Cloud CNPG-I plugin
+      ansible.builtin.command: "kubectl apply -f {{ barman_plugin_url }} --context {{ item.context }}"
+      register: barman_plugin_apply
+      changed_when: "'created' in barman_plugin_apply.stdout or 'configured' in barman_plugin_apply.stdout"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Wait for Barman Cloud plugin deployment rollout
+      ansible.builtin.command: >-
+        kubectl --context {{ item.context }} -n cnpg-system
+        rollout status deploy/barman-cloud --timeout=180s
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+# ========================================================================
+# STEP 4 — Multi-cluster Vault authentication
+# ========================================================================
+    - name: List Vault secrets engines
+      ansible.builtin.command: "{{ vault_exec }} vault secrets list -format=json"
+      register: vault_secrets
+      changed_when: false
+
+    - name: Enable kv-v2 secrets engine
+      ansible.builtin.command: "{{ vault_exec }} vault secrets enable -path=kv kv-v2"
+      when: "'kv/' not in (vault_secrets.stdout | from_json)"
+
+    - name: Enable pki secrets engine
+      ansible.builtin.command: "{{ vault_exec }} vault secrets enable pki"
+      when: "'pki/' not in (vault_secrets.stdout | from_json)"
+
+    - name: List Vault auth methods
+      ansible.builtin.command: "{{ vault_exec }} vault auth list -format=json"
+      register: vault_auths
+      changed_when: false
+
+    - name: Enable Kubernetes auth path per cluster
+      ansible.builtin.command: "{{ vault_exec }} vault auth enable -path={{ item.vault_path }} kubernetes"
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.vault_path }}"
+      when: (item.vault_path + '/') not in (vault_auths.stdout | from_json)
+
+    # --- STEP 4.1/4.2/4.5 — Configure each auth path ------------------------
+    - name: Read existing Vault auth config per cluster
+      ansible.builtin.command: "{{ vault_exec }} vault read auth/{{ item.vault_path }}/config"
+      register: auth_cfg
+      failed_when: false
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.vault_path }}"
+
+    - name: Extract cluster CA certificate
+      ansible.builtin.shell: >-
+        set -o pipefail;
+        kubectl config view --raw --context {{ item.context }} --minify
+        -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d
+      register: ca_certs
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Stage CA certificate on host
+      become: true
+      ansible.builtin.copy:
+        dest: "/tmp/ca-{{ item.0.name }}.crt"
+        content: "{{ item.1.stdout }}\n"
+        mode: "0644"
+      loop: "{{ clusters | zip(ca_certs.results) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}"
+
+    - name: Copy CA certificate into Vault container
+      ansible.builtin.command: "docker cp /tmp/ca-{{ item.0.name }}.crt {{ vault_container }}:/tmp/ca-{{ item.0.name }}.crt"
+      loop: "{{ clusters | zip(auth_cfg.results) | list }}"
+      loop_control:
+        label: "{{ item.0.name }}"
+      when: item.1.rc != 0
+
+    - name: Generate long-lived token reviewer JWT
+      ansible.builtin.command: >-
+        kubectl create token cert-manager -n cert-manager
+        --duration=87600h --context {{ item.0.context }}
+      register: reviewer_tokens
+      no_log: true
+      changed_when: item.1.rc != 0
+      loop: "{{ clusters | zip(auth_cfg.results) | list }}"
+      loop_control:
+        label: "{{ item.0.context }}"
+      when: item.1.rc != 0
+
+    # Clean direct container-to-container endpoint via Docker DNS
+    - name: Configure Vault Kubernetes auth endpoint
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write auth/{{ item.0.vault_path }}/config
+        kubernetes_host=https://k3d-{{ item.0.name }}-serverlb:6443
+        kubernetes_ca_cert=@/tmp/ca-{{ item.0.name }}.crt
+        token_reviewer_jwt={{ item.2.stdout }}
+        disable_iss_validation=true
+      no_log: true
+      loop: "{{ clusters | zip(auth_cfg.results, reviewer_tokens.results) | list }}"
+      loop_control:
+        label: "{{ item.0.vault_path }}"
+      when: item.1.rc != 0
+
+    # --- STEP 4.5 — Per-cluster Vault roles -----------------------------------
+    - name: Read existing Vault cluster roles
+      ansible.builtin.command: "{{ vault_exec }} vault read auth/{{ item.0.vault_path }}/role/{{ item.1.name }}"
+      register: role_checks
+      failed_when: false
+      changed_when: false
+      loop: "{{ clusters | product(vault_cluster_roles) | list }}"
+      loop_control:
+        label: "{{ item.0.vault_path }}/{{ item.1.name }}"
+
+    - name: Create Vault cluster roles
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write auth/{{ item.0.0.vault_path }}/role/{{ item.0.1.name }}
+        {{ item.0.1.args | join(' ') }}
+      loop: "{{ (clusters | product(vault_cluster_roles) | list) | zip(role_checks.results) | list }}"
+      loop_control:
+        label: "{{ item.0.0.vault_path }}/{{ item.0.1.name }}"
+      when: item.1.rc != 0
+
+    # --- STEP 4.6 — PKI root CA -----------------------------------------------
+    - name: Check for existing PKI root CA
+      ansible.builtin.command: "{{ vault_exec }} vault read -field=certificate pki/cert/ca"
+      register: pki_ca
+      failed_when: false
+      changed_when: false
+
+    - name: Generate PKI root CA
+      ansible.builtin.command: "{{ vault_exec }} vault write pki/root/generate/internal common_name=cnpg-root-ca ttl=87600h"
+      when: pki_ca.rc != 0 or 'BEGIN CERTIFICATE' not in pki_ca.stdout
+
+    # --- STEP 4.7 — PKI roles -------------------------------------------------
+    - name: Check PKI server role
+      ansible.builtin.command: "{{ vault_exec }} vault read pki/roles/cnpg-server-role"
+      register: pki_server_role
+      failed_when: false
+      changed_when: false
+
+    - name: Create PKI server role
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write pki/roles/cnpg-server-role
+        allowed_domains=svc,svc.cluster.local allow_subdomains=true
+        allow_any_name=false enforce_hostnames=true require_cn=false max_ttl=720h
+      when: pki_server_role.rc != 0
+
+    - name: Check PKI client role
+      ansible.builtin.command: "{{ vault_exec }} vault read pki/roles/cnpg-client-role"
+      register: pki_client_role
+      failed_when: false
+      changed_when: false
+
+    - name: Create PKI client role
+      ansible.builtin.command: >-
+        {{ vault_exec }} vault write pki/roles/cnpg-client-role
+        allow_any_name=true enforce_hostnames=false require_cn=true max_ttl=720h
+      when: pki_client_role.rc != 0
+
+    # --- STEP 4.8 — Policies --------------------------------------------------
+    - name: Check eso-policy
+      ansible.builtin.command: "{{ vault_exec }} vault policy read eso-policy"
+      register: eso_policy
+      failed_when: false
+      changed_when: false
+
+    - name: Write eso-policy
+      ansible.builtin.command: "{{ vault_exec_i }} vault policy write eso-policy -"
+      args:
+        stdin: |
+          path "kv/data/cnpg/*" {
+            capabilities = ["read"]
+          }
+      when: eso_policy.rc != 0
+
+    - name: Check cert-manager-policy
+      ansible.builtin.command: "{{ vault_exec }} vault policy read cert-manager-policy"
+      register: cm_policy
+      failed_when: false
+      changed_when: false
+
+    - name: Write cert-manager-policy
+      ansible.builtin.command: "{{ vault_exec_i }} vault policy write cert-manager-policy -"
+      args:
+        stdin: |
+          path "pki/sign/cnpg-*" {
+            capabilities = ["create", "update"]
+          }
+      when: cm_policy.rc != 0
+
+    # ========================================================================
+    # STEP 5 — Vault backends & issuers
+    # ========================================================================
+    - name: Wait for cert-manager webhooks
+      ansible.builtin.command: >-
+        kubectl --context {{ item.0.context }} -n cert-manager
+        rollout status deploy/{{ item.1 }} --timeout=180s
+      changed_when: false
+      loop: "{{ clusters | product(['cert-manager', 'cert-manager-webhook', 'cert-manager-cainjector']) | list }}"
+      loop_control:
+        label: "{{ item.0.context }}/{{ item.1 }}"
+
+    - name: Wait for external-secrets webhook
+      ansible.builtin.command: >-
+        kubectl --context {{ item.context }} -n external-secrets
+        rollout status deploy/external-secrets-webhook --timeout=180s
+      changed_when: false
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+
+    - name: Deploy ClusterSecretStore + ClusterIssuers
+      ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+      args:
+        stdin: |
+          apiVersion: external-secrets.io/v1
+          kind: ClusterSecretStore
+          metadata:
+            name: vault-backend
+          spec:
+            provider:
+              vault:
+                server: "http://external-vault:8200"
+                path: "kv"
+                version: "v2"
+                auth:
+                  kubernetes:
+                    mountPath: "{{ item.vault_path }}"
+                    role: "eso"
+                    serviceAccountRef:
+                      name: "external-secrets"
+                      namespace: "external-secrets"
+          ---
+          apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          metadata:
+            name: cnpg-server-issuer
+          spec:
+            vault:
+              server: "http://external-vault:8200"
+              path: "pki/sign/cnpg-server-role"
+              auth:
+                kubernetes:
+                  mountPath: "/v1/auth/{{ item.vault_path }}"
+                  role: "cert-manager"
+                  serviceAccountRef:
+                    name: "cert-manager"
+                    audiences:
+                      - "vault"
+          ---
+          apiVersion: cert-manager.io/v1
+      register: eso_release
+      failed_when: false
+      changed_when: false
+          kind: ClusterIssuer
+          metadata:
+            name: cnpg-client-issuer
+          spec:
+            vault:
+              server: "http://external-vault:8200"
+              path: "pki/sign/cnpg-client-role"
+              auth:
+                kubernetes:
+                  mountPath: "/v1/auth/{{ item.vault_path }}"
+                  role: "cert-manager"
+                  serviceAccountRef:
+                    name: "cert-manager"
+                    audiences:
+                      - "vault"
+      register: issuers_apply
+      changed_when: "'created' in issuers_apply.stdout or 'configured' in issuers_apply.stdout"
+      until: issuers_apply.rc == 0
+      retries: 10
+      delay: 6
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+    # ========================================================================
+    # STEP 6 — Observability & Monitoring Profiles
+    # ========================================================================
+
+    # --- STEP 6.1 — Base CRDs (Runs for ALL profiles: training, local, prod_otlp)
+    - name: Apply Prometheus Operator CRDs across workload clusters
+      ansible.builtin.command: >-
+        kubectl apply --context {{ item.context }} --server-side --force-conflicts
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_alertmanagerconfigs.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_alertmanagers.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_podmonitors.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_probes.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_prometheusagents.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_prometheuses.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_prometheusrules.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_scrapeconfigs.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_servicemonitors.yaml
+        -f https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/main/example/prometheus-operator-crd/monitoring.coreos.com_thanosrulers.yaml
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+      register: prom_crds
+      changed_when: "'created' in prom_crds.stdout or 'configured' in prom_crds.stdout or 'serverside-applied' in prom_crds.stdout"
+      
+    # --- STEP 6.2 — LOCAL PROFILE: Deploy Prometheus + Grafana on cluster-a ---
+    - name: Add Prometheus Community Helm Repo (Local Profile)
+      ansible.builtin.command: "helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update"
+      when: lab_profile == "local"
+      changed_when: false
+
+    - name: Deploy Kube-Prometheus-Stack on cluster-a (Local Profile)
+      ansible.builtin.command: >-
+        helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack
+        --namespace monitoring --create-namespace
+        --skip-crds
+        --set grafana.enabled=true
+        --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false
+        --kube-context k3d-cluster-a
+      when: lab_profile == "local"
+      register: prom_stack
+      changed_when: "'RELEASED' in prom_stack.stdout or 'upgraded' in prom_stack.stdout or 'installed' in prom_stack.stdout"
+
+    # --- STEP 6.3 —  PROD_OTLP PROFILE: Ship metrics from k3d to host SigNoz Docker Container
+    - name: Add OpenTelemetry Helm Repo (Prod OTLP Profile)
+      ansible.builtin.command: "helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts --force-update"
+      when: lab_profile == "prod_otlp"
+      changed_when: false
+
+    - name: Deploy OpenTelemetry Collector Agents on Workload Clusters (Prod OTLP Profile)
+      ansible.builtin.command: >-
+        helm upgrade --install otel-collector open-telemetry/opentelemetry-collector
+        --namespace monitoring --create-namespace
+        --set mode=daemonset
+        --set image.repository=otel/opentelemetry-collector-contrib
+        --set config.exporters.otlp.endpoint=host.k3d.internal:4317
+        --set config.exporters.otlp.tls.insecure=true
+        --kube-context {{ item.context }}
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.context }}"
+      when: lab_profile == "prod_otlp"
+      register: otel_deploy
+      changed_when: "'RELEASED' in otel_deploy.stdout or 'upgraded' in otel_deploy.stdout or 'installed' in otel_deploy.stdout"
