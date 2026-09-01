@@ -195,7 +195,7 @@ Shipped catalogue:
 | Component | Default | Settings |
 |---|---|---|
 | `secrets` | — | `provider: openbao\|vault` |
-| `storage` | on | `driver: csi-hostpath\|local-path`, `snapshots: true\|false` |
+| `storage` | on | `driver: csi-nfs\|csi-hostpath\|local-path`, `snapshots: true\|false` |
 | `barman_plugin` | on | — |
 | `monitoring` | on | `stack: crds_only\|kube-prometheus\|otel-signoz`, `workload_agents`, `retention` |
 
