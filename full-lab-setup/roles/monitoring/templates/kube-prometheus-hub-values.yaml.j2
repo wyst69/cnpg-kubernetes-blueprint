@@ -76,12 +76,17 @@ prometheus:
     enableRemoteWriteReceiver: true
     retention: {{ components.monitoring.retention }}
 
+    # Same label name as the workload agents' externalLabels
+    # (kube-prometheus-agent-values.yaml.j2) — k8s_cluster, not cluster, so
+    # every series in this Prometheus uses one consistent name for "which K8s
+    # cluster", regardless of whether it arrived via local scrape or
+    # remote_write.
     scrapeClasses:
       - name: hub-cluster-label
         default: true
         relabelings:
           - action: replace
-            targetLabel: cluster
+            targetLabel: k8s_cluster
             replacement: {{ hub_cluster.name }}
 
     # Pick up PodMonitors/ServiceMonitors regardless of Helm release labels —

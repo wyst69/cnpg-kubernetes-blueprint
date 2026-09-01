@@ -1,0 +1,52 @@
+---
+# =============================================================================
+# dashboards — Grafana dashboards for the hub, picked up by the sidecar
+# already enabled in kube-prometheus-hub-values.yaml.j2. No sidecar config
+# needed beyond what's already there: kube-prometheus-stack's Grafana chart
+# defaults to searchNamespace ALL + cluster-wide RBAC, so any namespace on
+# the hub works, and the label convention is the plain upstream default
+# (grafana_dashboard: "1") — verified against the actual chart templates,
+# not assumed. Both dashboards use a k8s_cluster variable/label to stay
+# correct once more than one workload cluster's CNPG metrics land in the
+# same hub Prometheus (see kube-prometheus-{agent,hub}-values.yaml.j2).
+# =============================================================================
+
+- name: Copy the dashboard JSON files to the Docker host
+  ansible.builtin.copy:
+    src: "dashboards/{{ item }}.json"
+    dest: "/tmp/{{ item }}-dashboard.json"
+    mode: "0644"
+  loop:
+    - cloudnativepg
+    - cloudnativepg-fleet-overview
+  loop_control:
+    label: "{{ item }}"
+
+- name: Probe for the Grafana dashboard ConfigMaps
+  ansible.builtin.command: >-
+    kubectl --context {{ hub_cluster.context }} -n monitoring
+    get configmap {{ item }} -o name
+  register: dashboard_probe
+  changed_when: false
+  failed_when: false
+  loop:
+    - cloudnativepg
+    - cloudnativepg-fleet-overview
+  loop_control:
+    label: "{{ item }}"
+
+- name: Deploy the Grafana dashboards
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    kubectl --context {{ hub_cluster.context }} -n monitoring
+    create configmap {{ item.0 }}
+    --from-file={{ item.0 }}.json=/tmp/{{ item.0 }}-dashboard.json
+    --dry-run=client -o json
+    | jq '.metadata.labels.grafana_dashboard="1"'
+    | kubectl apply --context {{ hub_cluster.context }} --server-side --force-conflicts -f -
+  args:
+    executable: /bin/bash
+  changed_when: "item.1.rc != 0"
+  loop: "{{ ['cloudnativepg', 'cloudnativepg-fleet-overview'] | zip(dashboard_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"

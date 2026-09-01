@@ -21,6 +21,27 @@
   ansible.builtin.include_tasks: kube_prometheus.yml
   when: components.monitoring.stack == 'kube-prometheus'
 
+- name: Deploy the Grafana dashboards
+  ansible.builtin.include_tasks: dashboards.yml
+  when: components.monitoring.stack == 'kube-prometheus'
+
+# Belongs here, not in roles/cnpg: needs the PodMonitor CRD from crds.yml
+# above, and the cnpg role runs before this one in site.yml — applying it
+# there fails on a fresh deploy with "no matches for kind PodMonitor,
+# ensure CRDs are installed first" (found via a from-scratch teardown+
+# redeploy test; every prior verification this session was against an
+# already-running lab where the CRD already existed from an earlier run).
+- name: Deploy the PodMonitor for the CNPG operator's own metrics
+  ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+  args:
+    stdin: "{{ lookup('ansible.builtin.file', 'operator-podmonitor.yaml') }}"
+  register: operator_podmonitor_apply
+  changed_when: "'created' in operator_podmonitor_apply.stdout or 'configured' in operator_podmonitor_apply.stdout"
+  when: components.monitoring.stack == 'kube-prometheus'
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
 - name: Install SigNoz and the OpenTelemetry collectors
   ansible.builtin.include_tasks: otel_signoz.yml
   when: components.monitoring.stack == 'otel-signoz'

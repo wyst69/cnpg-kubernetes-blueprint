@@ -49,7 +49,14 @@ prometheus:
     serviceMonitorSelectorNilUsesHelmValues: false
 
     externalLabels:
-      cluster: {{ cluster.name }}
+      # Named k8s_cluster, not cluster: CNPG's own exporter already emits a
+      # `cluster` label (the Cluster CR name), and Prometheus's external_labels
+      # are silently dropped whenever a scraped series already has a label of
+      # that name (https://github.com/prometheus/prometheus/issues/12265) — so
+      # `cluster: {{ cluster.name }}` here would never actually apply to any
+      # cnpg_* metric, defeating the point of stamping which K8s cluster a
+      # series came from once multiple clusters remote_write to the same hub.
+      k8s_cluster: {{ cluster.name }}
 
     remoteWrite:
       - url: "http://{{ hub_service_ips.prometheus }}:9090/api/v1/write"

@@ -1,0 +1,1062 @@
+{
+  "__inputs": [],
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "count(count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))",
+          "instant": true,
+          "legendFormat": "Clusters",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Clusters in Fleet",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum(label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "instant": true,
+          "legendFormat": "Instances",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Total Instances",
+      "type": "stat"
+    },
+    {
+      "description": "Health != 0 (replication degraded, or backup/WAL age/lag/storage past its red threshold) across every cluster in the fleet.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "10.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "count((clamp_max(((((max by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_streaming_replicas, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")) - sum by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_is_wal_receiver_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) + (clamp_max(max by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_streaming_replicas, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")), 1) - 1)) != bool 0) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((time() - max by (namespace, cnpg_cluster, k8s_cluster) (label_replace({__name__=~\"cnpg_collector_last_available_backup_timestamp|barman_cloud_cloudnative_pg_io_last_available_backup_timestamp\"}, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 108000) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((max by (namespace, cnpg_cluster, k8s_cluster) (label_replace((1 - cnpg_pg_replication_in_recovery) * (time() - timestamp(cnpg_pg_stat_archiver_seconds_since_last_archival) + cnpg_pg_stat_archiver_seconds_since_last_archival) * on(pod, namespace, k8s_cluster) group_left() (cnpg_collector_pg_wal_archive_status{value=\"ready\"} > bool 0), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 900) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((max by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_lag, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 5) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((max by (namespace, cnpg_cluster, k8s_cluster) ((1 - kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes) * on(namespace, persistentvolumeclaim, k8s_cluster) group_left(cnpg_cluster) label_replace(label_replace(cnpg_collector_up, \"persistentvolumeclaim\", \"$1\", \"pod\", \"(.*)\"), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 0.9) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((max by (namespace, cnpg_cluster, k8s_cluster) ((1 - kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes) * on(namespace, persistentvolumeclaim, k8s_cluster) group_left(cnpg_cluster) label_replace(label_replace(cnpg_collector_up, \"persistentvolumeclaim\", \"$1-wal\", \"pod\", \"(.*)\"), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 0.9) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))), 1)) != 0) OR on() vector(0)",
+          "instant": true,
+          "legendFormat": "Unhealthy",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Unhealthy Clusters",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 10,
+      "panels": [],
+      "title": "Fleet Status",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "One row per CNPG cluster across every K8s cluster remote-writing into this Prometheus. Click a cluster name to drill into its detail dashboard.",
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "id": 20,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unitScale": true
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CNPG Cluster"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open cluster detail dashboard",
+                    "url": "/d/cloudnative-pg/cloudnativepg?var-k8s_cluster=${__data.fields[\"K8s Cluster\"]}&var-namespace=${__data.fields[\"Namespace\"]}&var-cluster=${__data.fields[\"CNPG Cluster\"]}&var-instances=All"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Health"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "Healthy"
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "from": 1,
+                      "to": 999,
+                      "result": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "Unhealthy"
+                      }
+                    },
+                    "type": "range"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Max Lag (s)"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "color": "text",
+                        "index": 0,
+                        "text": "No data"
+                      }
+                    },
+                    "type": "special"
+                  },
+                  {
+                    "options": {
+                      "from": 0,
+                      "result": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "Healthy"
+                      },
+                      "to": 0.1
+                    },
+                    "type": "range"
+                  },
+                  {
+                    "options": {
+                      "from": 0.1,
+                      "result": {
+                        "color": "yellow",
+                        "index": 2,
+                        "text": "Sub-second"
+                      },
+                      "to": 1
+                    },
+                    "type": "range"
+                  },
+                  {
+                    "options": {
+                      "from": 1,
+                      "result": {
+                        "color": "orange",
+                        "index": 3,
+                        "text": "Delayed"
+                      },
+                      "to": 5
+                    },
+                    "type": "range"
+                  },
+                  {
+                    "options": {
+                      "from": 5,
+                      "result": {
+                        "color": "red",
+                        "index": 4,
+                        "text": "High"
+                      },
+                      "to": 4294967295
+                    },
+                    "type": "range"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL Age (s)"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "color": "orange",
+                        "index": 0,
+                        "text": "None"
+                      }
+                    },
+                    "type": "special"
+                  },
+                  {
+                    "options": {
+                      "from": 0,
+                      "result": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "Healthy"
+                      },
+                      "to": 360
+                    },
+                    "type": "range"
+                  },
+                  {
+                    "options": {
+                      "from": 360,
+                      "result": {
+                        "color": "orange",
+                        "index": 2,
+                        "text": "Delayed"
+                      },
+                      "to": 900
+                    },
+                    "type": "range"
+                  },
+                  {
+                    "options": {
+                      "from": 900,
+                      "result": {
+                        "color": "red",
+                        "index": 3,
+                        "text": "Unsynced"
+                      },
+                      "to": 4294967295
+                    },
+                    "type": "range"
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Backup Age (s)"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "color": "orange",
+                        "index": 0,
+                        "text": "None"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 86400
+                    },
+                    {
+                      "color": "red",
+                      "value": 108000
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Data %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "color": "text",
+                        "index": 0,
+                        "text": "N/A"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.8
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.9
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "color": "text",
+                        "index": 0,
+                        "text": "N/A"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.8
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.9
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "CPU %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.8
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.9
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 90
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Memory %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.8
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.9
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Connections %"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "#EAB839",
+                      "value": 75
+                    },
+                    {
+                      "color": "red",
+                      "value": 90
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Instances"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "PG Version"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 120
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Time"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Health"
+          }
+        ]
+      },
+      "pluginVersion": "10.3.3",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "clamp_max(((((max by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_streaming_replicas, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")) - sum by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_is_wal_receiver_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) + (clamp_max(max by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_streaming_replicas, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")), 1) - 1)) != bool 0) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((time() - max by (namespace, cnpg_cluster, k8s_cluster) (label_replace({__name__=~\"cnpg_collector_last_available_backup_timestamp|barman_cloud_cloudnative_pg_io_last_available_backup_timestamp\"}, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 108000) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((max by (namespace, cnpg_cluster, k8s_cluster) (label_replace((1 - cnpg_pg_replication_in_recovery) * (time() - timestamp(cnpg_pg_stat_archiver_seconds_since_last_archival) + cnpg_pg_stat_archiver_seconds_since_last_archival) * on(pod, namespace, k8s_cluster) group_left() (cnpg_collector_pg_wal_archive_status{value=\"ready\"} > bool 0), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 900) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((max by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_lag, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 5) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((max by (namespace, cnpg_cluster, k8s_cluster) ((1 - kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes) * on(namespace, persistentvolumeclaim, k8s_cluster) group_left(cnpg_cluster) label_replace(label_replace(cnpg_collector_up, \"persistentvolumeclaim\", \"$1\", \"pod\", \"(.*)\"), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 0.9) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))) + (((max by (namespace, cnpg_cluster, k8s_cluster) ((1 - kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes) * on(namespace, persistentvolumeclaim, k8s_cluster) group_left(cnpg_cluster) label_replace(label_replace(cnpg_collector_up, \"persistentvolumeclaim\", \"$1-wal\", \"pod\", \"(.*)\"), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))) > bool 0.9) or on(namespace, cnpg_cluster, k8s_cluster) (0 * count by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))), 1)",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_pg_replication_lag, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (namespace, cnpg_cluster, k8s_cluster) (label_replace((1 - cnpg_pg_replication_in_recovery) * (time() - timestamp(cnpg_pg_stat_archiver_seconds_since_last_archival) + cnpg_pg_stat_archiver_seconds_since_last_archival) * on(pod, namespace, k8s_cluster) group_left() (cnpg_collector_pg_wal_archive_status{value=\"ready\"} > bool 0), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "time() - max by (namespace, cnpg_cluster, k8s_cluster) (label_replace({__name__=~\"cnpg_collector_last_available_backup_timestamp|barman_cloud_cloudnative_pg_io_last_available_backup_timestamp\"}, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (namespace, cnpg_cluster, k8s_cluster) (label_replace(cnpg_collector_postgres_version, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (namespace, cnpg_cluster, k8s_cluster) (irate(container_cpu_usage_seconds_total{image!=\"\",job=\"kubelet\",metrics_path=\"/metrics/cadvisor\"}[5m]) * on(namespace, pod, k8s_cluster) group_left(cnpg_cluster) label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")) / sum by (namespace, cnpg_cluster, k8s_cluster) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", resource=\"cpu\"} * on(namespace, pod, k8s_cluster) group_left(cnpg_cluster) label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (namespace, cnpg_cluster, k8s_cluster) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", container!=\"\", image!=\"\"} * on(namespace, pod, k8s_cluster) group_left(cnpg_cluster) label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")) / sum by (namespace, cnpg_cluster, k8s_cluster) (kube_pod_container_resource_requests{job=\"kube-state-metrics\", resource=\"memory\"} * on(namespace, pod, k8s_cluster) group_left(cnpg_cluster) label_replace(cnpg_collector_up, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "H"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "100 * max by (namespace, cnpg_cluster, k8s_cluster) (sum by (namespace, cnpg_cluster, k8s_cluster, pod) (label_replace(cnpg_backends_total, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")) / max by (namespace, cnpg_cluster, k8s_cluster, pod) (label_replace(cnpg_pg_settings_setting{name=\"max_connections\"}, \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\")))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (namespace, cnpg_cluster, k8s_cluster) ((1 - kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes) * on(namespace, persistentvolumeclaim, k8s_cluster) group_left(cnpg_cluster) label_replace(label_replace(cnpg_collector_up, \"persistentvolumeclaim\", \"$1\", \"pod\", \"(.*)\"), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "J"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_PROMETHEUS}"
+          },
+          "editorMode": "code",
+          "expr": "max by (namespace, cnpg_cluster, k8s_cluster) ((1 - kubelet_volume_stats_available_bytes / kubelet_volume_stats_capacity_bytes) * on(namespace, persistentvolumeclaim, k8s_cluster) group_left(cnpg_cluster) label_replace(label_replace(cnpg_collector_up, \"persistentvolumeclaim\", \"$1-wal\", \"pod\", \"(.*)\"), \"cnpg_cluster\", \"$1\", \"job\", \".*/(.*)\"))",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "K"
+        }
+      ],
+      "title": "Fleet",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "k8s_cluster": 0,
+              "namespace": 1,
+              "cnpg_cluster": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #J": 8,
+              "Value #K": 9,
+              "Value #G": 10,
+              "Value #H": 11,
+              "Value #I": 12,
+              "Value #F": 13
+            },
+            "renameByName": {
+              "k8s_cluster": "K8s Cluster",
+              "namespace": "Namespace",
+              "cnpg_cluster": "CNPG Cluster",
+              "Value #A": "Instances",
+              "Value #B": "Health",
+              "Value #C": "Max Lag (s)",
+              "Value #D": "WAL Age (s)",
+              "Value #E": "Backup Age (s)",
+              "Value #J": "Data %",
+              "Value #K": "WAL %",
+              "Value #G": "CPU %",
+              "Value #H": "Memory %",
+              "Value #I": "Connections %",
+              "Value #F": "PG Version"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": [
+    "cloudnativepg",
+    "fleet"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "CloudNativePG Fleet Overview",
+  "uid": "cloudnative-pg-fleet",
+  "version": 1,
+  "weekStart": ""
+}
