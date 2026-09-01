@@ -22,7 +22,14 @@ csi_snapshot_crd_urls:
   - "{{ csi_snapshotter_base }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml"
   - "{{ csi_snapshotter_base }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml"
   - "{{ csi_snapshotter_base }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml"
-csi_snapshot_controller_url: "{{ csi_snapshotter_base }}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml"
+csi_snapshot_controller_urls:
+  # RBAC first: setup-snapshot-controller.yaml is the Deployment ONLY (verified
+  # by reading it) — it does not include the ServiceAccount/ClusterRole/
+  # ClusterRoleBinding the Deployment's pods need, those are in this sibling
+  # file. Applying the Deployment without it leaves every pod stuck on
+  # "serviceaccount not found" forever, with no events pointing at the fix.
+  - "{{ csi_snapshotter_base }}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml"
+  - "{{ csi_snapshotter_base }}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml"
 
 # NOT PINNED — the hostpath driver is deployed from the tip of `master`, the
 # way its own deploy.sh expects.

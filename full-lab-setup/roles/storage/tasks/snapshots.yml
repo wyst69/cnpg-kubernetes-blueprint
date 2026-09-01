@@ -38,7 +38,7 @@
 - name: Deploy the VolumeSnapshot controller
   ansible.builtin.command: >-
     kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
-    -f {{ csi_snapshot_controller_url }}
+    {% for url in csi_snapshot_controller_urls %} -f {{ url }}{% endfor %}
   changed_when: "item.1.rc != 0"
   loop: "{{ all_clusters | zip(snap_ctrl_probe.results) | list }}"
   loop_control:
