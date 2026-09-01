@@ -1,0 +1,146 @@
+---
+# =============================================================================
+# CNPG cross-cluster lab — k3d + management hub (Vault, MinIO) + workload
+# clusters (cert-manager, ESO, CNPG, MetalLB, barman-cloud).
+#
+#   Local Docker host:
+#     ansible-playbook site.yml -e host_ip=<HOST_IP>
+#
+#   Remote Docker host (edit inventory.ini first):
+#     ansible-playbook site.yml -e target=docker_host -e host_ip=<HOST_IP>
+#
+#   Only part of it:
+#     ansible-playbook site.yml --tags monitoring
+#     ansible-playbook site.yml --skip-tags storage
+#
+#   Without an optional component:
+#     ansible-playbook site.yml -e '{"lab_components":{"monitoring":{"enabled":false}}}'
+#
+# PREREQUISITES on the Docker host (NOT installed here):
+#   docker, kubectl, k3d, helm, and the cnpg kubectl plugin.
+# The iptables/sysctl/apt tasks need sudo there.
+#
+# Idempotency:
+#   docker/k3d       guarded by existence checks before create
+#   helm             `upgrade --install` throughout
+#   kubectl apply    naturally convergent; changed only on create/configure
+#   vault writes     guarded by `vault read` so re-runs are no-ops
+#   pki root CA      generated ONLY if absent — never regenerated, because that
+#                    would invalidate every certificate already issued
+# =============================================================================
+- name: Deploy the CNPG cross-cluster lab
+  hosts: "{{ target | default('localhost') }}"
+  gather_facts: true
+
+  pre_tasks:
+    - name: Ensure host_ip is set
+      ansible.builtin.assert:
+        that:
+          - host_ip is defined
+          - host_ip | length > 0
+        fail_msg: >-
+          host_ip could not be auto-detected. Pass it explicitly:
+          ansible-playbook site.yml -e host_ip=<HOST_IP>
+        success_msg: "Using host_ip={{ host_ip }}."
+      tags: [always]
+
+    - name: Merge component overrides over the catalogue
+      ansible.builtin.set_fact:
+        components: >-
+          {{ lab_component_defaults
+             | combine(lab_components | default({}), recursive=True) }}
+      tags: [always]
+
+    - name: Reject unknown component names
+      ansible.builtin.assert:
+        that: (lab_components | default({}) | list) is subset(lab_component_defaults | list)
+        fail_msg: >-
+          Unknown component(s):
+          {{ (lab_components | default({}) | list) | difference(lab_component_defaults | list) | join(', ') }}.
+          Known components: {{ lab_component_defaults | list | join(', ') }}.
+      tags: [always]
+
+    - name: Validate the monitoring stack selection
+      ansible.builtin.assert:
+        that: components.monitoring.stack in ['crds_only', 'kube-prometheus', 'otel-signoz']
+        fail_msg: >-
+          components.monitoring.stack must be one of
+          crds_only | kube-prometheus | otel-signoz
+          (got '{{ components.monitoring.stack }}').
+      when: components.monitoring.enabled
+      tags: [always]
+
+    - name: Validate the secrets provider selection
+      ansible.builtin.assert:
+        that: components.secrets.provider in ['openbao', 'vault']
+        fail_msg: >-
+          components.secrets.provider must be openbao | vault
+          (got '{{ components.secrets.provider }}').
+      tags: [always]
+
+    - name: Show the resolved component set
+      ansible.builtin.debug:
+        var: components
+      tags: [always]
+
+  roles:
+    # --- Foundation: always installed ---------------------------------------
+    - role: host_prep
+      tags: [host, prep]
+
+    - role: k3d_clusters
+      tags: [k3d, clusters]
+
+    - role: storage
+      when: components.storage.enabled
+      tags: [storage, csi]
+
+    - role: metallb
+      tags: [metallb, network]
+
+    # --- Management hub -------------------------------------------------------
+    - role: hub_vault
+      tags: [hub, vault]
+
+    - role: hub_minio
+      tags: [hub, minio, s3]
+
+    # --- Workload clusters ----------------------------------------------------
+    - role: cert_manager
+      tags: [certmanager, tls]
+
+    - role: external_secrets
+      tags: [eso, secrets]
+
+    - role: cnpg
+      tags: [cnpg, operators]
+
+    - role: barman_plugin
+      when: components.barman_plugin.enabled
+      tags: [barman, backup]
+
+    # --- Wire the workload clusters to the hub's secrets manager --------------
+    - role: vault_k8s_auth
+      tags: [vault, auth]
+
+    - role: vault_integration
+      tags: [vault, integration]
+
+    # --- Optional tooling -----------------------------------------------------
+    - role: monitoring
+      when: components.monitoring.enabled
+      tags: [monitoring, observability]
+
+  post_tasks:
+    - name: Lab endpoints
+      ansible.builtin.debug:
+        msg:
+          - "{{ secrets_cfg.display }} UI    {{ secrets_addr_host }}  (token in {{ secrets_keys_file }})"
+          - "{{ secrets_cfg.display }} in-lab {{ secrets_addr_lab }}"
+          - "MinIO console http://127.0.0.1:9001  ({{ minio_root_user }}/{{ minio_root_password }})"
+          - "MinIO in-lab  {{ minio_endpoint_lab }}"
+          - "Contexts      {{ all_clusters | map(attribute='context') | join(', ') }}"
+          - >-
+            Open a new shell (or `source ~/.bashrc`) to pick up
+            {{ secrets_cfg.env_token }} and the kube aliases.
+      tags: [always]

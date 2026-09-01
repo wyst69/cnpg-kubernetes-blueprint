@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+# SigNoz on the management hub.
+
+global:
+  storageClass: {{ lab_storage_class }}
+
+signoz:
+  service:
+    type: LoadBalancer
+    port: 8080
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "{{ hub_service_ips.signoz }}"
+
+otelCollector:
+  service:
+    type: LoadBalancer
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "{{ hub_service_ips.signoz_otlp }}"

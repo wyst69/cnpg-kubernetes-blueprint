@@ -1,0 +1,107 @@
+---
+# Both providers claim the same MetalLB address and nodePort, so having both on
+# the hub cannot work.
+- name: List the Helm releases on the hub
+  ansible.builtin.command: "helm list -A --kube-context {{ hub_cluster.context }} -o json"
+  register: secrets_hub_releases
+  changed_when: false
+  failed_when: false
+
+- name: Fail if the other secrets provider is still installed
+  vars:
+    other: >-
+      {{ secrets_providers[secrets_providers | list
+         | reject('eq', secrets_provider) | first] }}
+  ansible.builtin.assert:
+    that: ('"name":"' ~ other.release ~ '"') not in secrets_hub_releases.stdout
+    fail_msg: >-
+      {{ other.display }} is still installed on the hub, and both providers want
+      {{ hub_service_ips.secrets }} plus nodePort {{ hub_node_ports.secrets }}.
+      Switching provider loses the PKI root CA either way, so tear the lab down
+      and redeploy rather than trying to migrate in place.
+
+- name: Add the {{ secrets_cfg.display }} Helm repository
+  ansible.builtin.command: >-
+    helm repo add {{ secrets_cfg.helm_repo }}
+    {{ helm_repos[secrets_cfg.helm_repo] }} --force-update
+  changed_when: false
+
+- name: Update the {{ secrets_cfg.display }} Helm repository
+  ansible.builtin.command: "helm repo update {{ secrets_cfg.helm_repo }}"
+  changed_when: false
+
+- name: Render the {{ secrets_cfg.display }} Helm values
+  ansible.builtin.template:
+    src: secrets-values.yaml.j2
+    dest: "{{ secrets_values_path }}"
+    mode: "0644"
+
+- name: Probe the installed {{ secrets_cfg.display }} release
+  ansible.builtin.command: >-
+    helm list --namespace {{ secrets_namespace }} --filter ^{{ secrets_release }}$
+    --kube-context {{ hub_cluster.context }} -o json
+  register: secrets_probe
+  changed_when: false
+  failed_when: false
+
+- name: Install or upgrade {{ secrets_cfg.display }} on the hub
+  ansible.builtin.command: >-
+    helm upgrade --install {{ secrets_release }}
+    {{ secrets_cfg.helm_repo }}/{{ secrets_cfg.chart_name }}
+    --namespace {{ secrets_namespace }} --create-namespace
+    {% if secrets_cfg.chart_version %}--version {{ secrets_cfg.chart_version }}{% endif %}
+    --values {{ secrets_values_path }}
+    --kube-context {{ hub_cluster.context }}
+    --wait --timeout 5m
+  changed_when: >-
+    '"status":"deployed"' not in secrets_probe.stdout
+    or (secrets_cfg.chart_version | length > 0
+        and ('"chart":"' ~ secrets_cfg.chart_name ~ '-' ~ secrets_cfg.chart_version ~ '"')
+            not in secrets_probe.stdout)
+
+- name: Wait for the {{ secrets_cfg.display }} pod to be running
+  ansible.builtin.command: >-
+    {{ secrets_kubectl }} get pod {{ secrets_pod }}
+    -o jsonpath={.status.phase}
+  register: secrets_phase
+  until: secrets_phase.stdout == 'Running'
+  retries: 30
+  delay: 5
+  changed_when: false
+
+- name: Pin the {{ secrets_cfg.display }} Service nodePort
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --context
+      - "{{ hub_cluster.context }}"
+      - -n
+      - "{{ secrets_namespace }}"
+      - patch
+      - svc
+      - "{{ secrets_release }}"
+      - -p
+      - "{{ {'spec': {'ports': [{'port': 8200, 'nodePort': hub_node_ports.secrets | int}]}} | to_json }}"
+  register: secrets_nodeport
+  changed_when: "'no change' not in secrets_nodeport.stdout"
+
+- name: Wait for MetalLB to assign the {{ secrets_cfg.display }} LoadBalancer address
+  ansible.builtin.command: >-
+    {{ secrets_kubectl }} get svc {{ secrets_release }}
+    -o jsonpath={.status.loadBalancer.ingress[0].ip}
+  register: secrets_lb_ip
+  until: secrets_lb_ip.stdout == hub_service_ips.secrets
+  retries: 20
+  delay: 5
+  changed_when: false
+  failed_when: false
+
+- name: Fail if {{ secrets_cfg.display }} did not get the expected LoadBalancer address
+  ansible.builtin.assert:
+    that: secrets_lb_ip.stdout == hub_service_ips.secrets
+    fail_msg: >-
+      The {{ secrets_cfg.display }} Service has address
+      '{{ secrets_lb_ip.stdout | default('<none>') }}' but the workload clusters
+      are configured to reach it at {{ hub_service_ips.secrets }}. Check that the
+      hub's MetalLB pool ({{ hub_cluster.metallb_range }}) contains that address
+      and that nothing else has claimed it.

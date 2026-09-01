@@ -1,0 +1,22 @@
+---
+# =============================================================================
+# cnpg — the CloudNativePG operator on the workload clusters.
+# =============================================================================
+
+- name: Install CloudNativePG
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.context }} --server-side -f {{ cnpg_url }}
+  register: cnpg_apply
+  changed_when: "'created' in cnpg_apply.stdout or 'configured' in cnpg_apply.stdout"
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Wait for the CloudNativePG operator rollout
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n cnpg-system
+    rollout status deploy/cnpg-controller-manager --timeout=300s
+  changed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"

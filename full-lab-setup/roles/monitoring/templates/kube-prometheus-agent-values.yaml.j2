@@ -1,0 +1,60 @@
+# {{ ansible_managed }}
+# kube-prometheus-stack on {{ cluster.context }}, in agent mode.
+#
+# The operator plus a PrometheusAgent: it honours the PodMonitors CNPG creates
+# in this cluster, keeps nothing locally, and remote-writes everything to the
+# hub. Grafana and Alertmanager live on the hub, so they are off here.
+
+crds:
+  enabled: false          # applied separately, server-side, in crds.yml
+
+grafana:
+  enabled: false
+
+alertmanager:
+  enabled: false
+
+kubeStateMetrics:
+  enabled: true
+
+nodeExporter:
+  enabled: true
+
+prometheusOperator:
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 25m
+
+kube-state-metrics:
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 10m
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      memory: 32Mi
+      cpu: 10m
+
+prometheus:
+  agentMode: true
+
+  service:
+    type: ClusterIP
+
+  prometheusSpec:
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+
+    externalLabels:
+      cluster: {{ cluster.name }}
+
+    remoteWrite:
+      - url: "http://{{ hub_service_ips.prometheus }}:9090/api/v1/write"
+
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m

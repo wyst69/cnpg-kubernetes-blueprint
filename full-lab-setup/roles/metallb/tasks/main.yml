@@ -1,0 +1,63 @@
+---
+# =============================================================================
+# metallb — one L2 address pool per cluster, all carved out of the shared
+# Docker subnet.
+#
+# The ranges (.50 hub, .100 cluster-a, .200 cluster-b) sit far above what
+# Docker's IPAM hands out to containers, so they never collide.
+# =============================================================================
+
+- name: Probe for the MetalLB controller
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n metallb-system get deploy controller -o name
+  register: metallb_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Install MetalLB
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
+    -f {{ metallb_url }}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ all_clusters | zip(metallb_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Wait for the MetalLB controller rollout
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n metallb-system
+    rollout status deploy/controller --timeout=180s
+  changed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Configure the address pool and L2 advertisement
+  ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+  args:
+    stdin: |
+      apiVersion: metallb.io/v1beta1
+      kind: IPAddressPool
+      metadata:
+        name: first-pool
+        namespace: metallb-system
+      spec:
+        addresses:
+          - {{ item.metallb_range }}
+      ---
+      apiVersion: metallb.io/v1beta1
+      kind: L2Advertisement
+      metadata:
+        name: empty
+        namespace: metallb-system
+  register: metallb_pool
+  changed_when: "'created' in metallb_pool.stdout or 'configured' in metallb_pool.stdout"
+  until: metallb_pool.rc == 0
+  retries: 10
+  delay: 6
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"

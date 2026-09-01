@@ -1,0 +1,62 @@
+# {{ ansible_managed }}
+# Cluster-side handles on the hub's {{ secrets_cfg.display }}, for {{ cluster.context }}.
+#
+# All three point at {{ secrets_addr_lab }} — the MetalLB address the server
+# holds on the hub. Each authenticates through this cluster's own Kubernetes auth
+# mount ({{ cluster.auth_path }}), so one cluster cannot borrow the other's
+# identity.
+---
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: vault-backend
+spec:
+  provider:
+    vault:
+      server: "{{ secrets_addr_lab }}"
+      path: "kv"
+      version: "v2"
+      auth:
+        kubernetes:
+          mountPath: "{{ cluster.auth_path }}"
+          role: "eso"
+          serviceAccountRef:
+            name: "external-secrets"
+            namespace: "external-secrets"
+---
+# Server certificates: names constrained to in-cluster service DNS.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cnpg-server-issuer
+spec:
+  vault:
+    server: "{{ secrets_addr_lab }}"
+    path: "pki/sign/cnpg-server-role"
+    auth:
+      kubernetes:
+        mountPath: "/v1/auth/{{ cluster.auth_path }}"
+        role: "cert-manager"
+        serviceAccountRef:
+          name: "cert-manager"
+          audiences:
+            - "vault"
+---
+# Client certificates: the CN carries the Postgres role name, so any name is
+# allowed but a CN is mandatory.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cnpg-client-issuer
+spec:
+  vault:
+    server: "{{ secrets_addr_lab }}"
+    path: "pki/sign/cnpg-client-role"
+    auth:
+      kubernetes:
+        mountPath: "/v1/auth/{{ cluster.auth_path }}"
+        role: "cert-manager"
+        serviceAccountRef:
+          name: "cert-manager"
+          audiences:
+            - "vault"

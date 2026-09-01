@@ -1,0 +1,193 @@
+---
+# SigNoz on the hub, OTLP collectors on the workload clusters.
+
+- name: Add the SigNoz Helm repository
+  ansible.builtin.command: "helm repo add signoz {{ helm_repos.signoz }} --force-update"
+  changed_when: false
+
+- name: Update the SigNoz Helm repository
+  ansible.builtin.command: "helm repo update signoz"
+  changed_when: false
+
+- name: Render the SigNoz values
+  ansible.builtin.template:
+    src: signoz-values.yaml.j2
+    dest: "/tmp/signoz-values.yaml"
+    mode: "0644"
+
+- name: Probe the installed SigNoz release
+  ansible.builtin.command: >-
+    helm list --namespace signoz --filter ^signoz$
+    --kube-context {{ hub_cluster.context }} -o json
+  register: signoz_probe
+  changed_when: false
+  failed_when: false
+
+- name: Install or upgrade SigNoz on the hub
+  ansible.builtin.command: >-
+    helm upgrade --install signoz signoz/signoz
+    --namespace signoz --create-namespace
+    {% if signoz_chart_version %}--version {{ signoz_chart_version }}{% endif %}
+    --values /tmp/signoz-values.yaml
+    --kube-context {{ hub_cluster.context }}
+    --wait --timeout 15m
+  changed_when: >-
+    '"status":"deployed"' not in signoz_probe.stdout
+    or (signoz_chart_version | length > 0
+        and ('"chart":"signoz-' ~ signoz_chart_version ~ '"') not in signoz_probe.stdout)
+
+- name: Pin the SigNoz UI Service nodePort
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --context
+      - "{{ hub_cluster.context }}"
+      - -n
+      - signoz
+      - patch
+      - svc
+      - signoz
+      - -p
+      - "{{ {'spec': {'ports': [{'port': 8080, 'nodePort': hub_node_ports.signoz_ui | int}]}} | to_json }}"
+  register: signoz_nodeport
+  changed_when: "'no change' not in signoz_nodeport.stdout"
+
+# =============================================================================
+# Bootstrap the SigNoz organisation — MANDATORY, not cosmetic.
+# =============================================================================
+- name: Wait for the SigNoz API
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ signoz_host_port }}/api/v1/version"
+    return_content: true
+  register: signoz_version
+  until: signoz_version.status | default(0) == 200
+  retries: 30
+  delay: 5
+
+- name: Bootstrap the SigNoz organisation and admin user
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ signoz_host_port }}/api/v1/register"
+    method: POST
+    body_format: json
+    body:
+      name: "{{ signoz_admin_name }}"
+      email: "{{ signoz_admin_email }}"
+      password: "{{ signoz_admin_password }}"
+      orgName: "{{ signoz_org_name }}"
+    status_code: [200, 201]
+  when: not (signoz_version.content | from_json).setupCompleted
+
+# --- Workload clusters ---------------------------------------------------------
+- name: Add the OpenTelemetry Helm repository
+  ansible.builtin.command: >-
+    helm repo add open-telemetry {{ helm_repos['open-telemetry'] }} --force-update
+  changed_when: false
+
+- name: Update the OpenTelemetry Helm repository
+  ansible.builtin.command: "helm repo update open-telemetry"
+  changed_when: false
+
+- name: Render the OpenTelemetry collector values
+  ansible.builtin.template:
+    src: otel-agent-values.yaml.j2
+    dest: "/tmp/otel-agent-{{ item.name }}-values.yaml"
+    mode: "0644"
+  vars:
+    cluster: "{{ item }}"
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Probe the installed OpenTelemetry collector releases
+  ansible.builtin.command: >-
+    helm list --namespace monitoring --filter ^otel-collector$
+    --kube-context {{ item.context }} -o json
+  register: otel_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Deploy the OpenTelemetry collector agents on the workload clusters
+  ansible.builtin.command: >-
+    helm upgrade --install otel-collector open-telemetry/opentelemetry-collector
+    --namespace monitoring --create-namespace
+    {% if otel_collector_chart_version %}--version {{ otel_collector_chart_version }}{% endif %}
+    --values /tmp/otel-agent-{{ item.0.name }}-values.yaml
+    --kube-context {{ item.0.context }}
+    --wait --timeout 5m
+  loop: "{{ clusters | zip(otel_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+  changed_when: >-
+    '"status":"deployed"' not in item.1.stdout
+    or (otel_collector_chart_version | length > 0
+        and ('"chart":"opentelemetry-collector-' ~ otel_collector_chart_version ~ '"')
+            not in item.1.stdout)
+
+- name: Read back the rendered collector config
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n monitoring
+    get cm otel-collector-opentelemetry-collector-agent -o jsonpath={.data.relay}
+  register: otel_cfg
+  changed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Assert every pipeline exports to the hub
+  ansible.builtin.assert:
+    that:
+      - (item.stdout | from_yaml).service.pipelines.traces.exporters == ['otlp']
+      - (item.stdout | from_yaml).service.pipelines.metrics.exporters == ['otlp']
+      - (item.stdout | from_yaml).service.pipelines.logs.exporters == ['otlp']
+      - (item.stdout | from_yaml).exporters.otlp.endpoint
+        == hub_service_ips.signoz_otlp ~ ':4317'
+    fail_msg: >-
+      The collector on {{ item.item.context }} is not routing to SigNoz.
+      Pipelines: {{ (item.stdout | from_yaml).service.pipelines
+                    | dict2items | map(attribute='key') | list }}.
+      Check the chart's default service.pipelines against the values template.
+    success_msg: "{{ item.item.context }}: traces, metrics and logs -> otlp"
+  loop: "{{ otel_cfg.results }}"
+  loop_control:
+    label: "{{ item.item.context }}"
+
+- name: Wait for telemetry to reach ClickHouse
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --context
+      - "{{ hub_cluster.context }}"
+      - -n
+      - signoz
+      - exec
+      - "{{ signoz_clickhouse_pod }}"
+      - -c
+      - clickhouse
+      - --
+      - clickhouse-client
+      - -q
+      - "SELECT count() FROM signoz_metrics.samples_v4"
+  register: signoz_rows
+  until: (signoz_rows.stdout | default('0') | trim | int) > 0
+  retries: 30
+  delay: 10
+  changed_when: false
+  failed_when: false
+
+- name: Confirm the OTLP ingest path works
+  ansible.builtin.assert:
+    that: (signoz_rows.stdout | default('0') | trim | int) > 0
+    fail_msg: >-
+      No metrics reached ClickHouse after 5 minutes. Check, in order:
+      (1) the workload collectors' pipelines name the otlp exporter — the assert
+      above covers this; (2) the hub collector actually started its receivers
+      (`kubectl -n signoz logs deploy/signoz-otel-collector -c collector`); if it
+      only logged extensions, the org bootstrap did not take and the server log
+      will say "cannot create agent without orgId"; (3) the workload collectors
+      can reach {{ hub_service_ips.signoz_otlp }}:4317.
+    success_msg: >-
+      OTLP ingest confirmed: {{ signoz_rows.stdout | trim }} metric samples in
+      ClickHouse. Traces stay at 0 until something in the lab emits spans.

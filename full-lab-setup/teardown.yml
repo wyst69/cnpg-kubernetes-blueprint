@@ -1,0 +1,176 @@
+---
+# =============================================================================
+# Teardown for the CNPG cross-cluster lab.
+#
+# Reverses site.yml. Idempotent and safe to re-run.
+#
+#   ansible-playbook teardown.yml
+#   ansible-playbook teardown.yml -e target=docker_host -e confirm=yes
+#
+# Deleting the hub cluster deletes Vault and MinIO with it — their data lives
+# in k3d-managed volumes, not in standalone Docker volumes any more.
+#
+# NOT reverted: the FORWARD iptables policy (its prior value is unknown) and
+# the inotify sysctls.
+# =============================================================================
+- name: Tear down the CNPG cross-cluster lab
+  hosts: "{{ target | default('localhost') }}"
+  gather_facts: true
+
+  vars_prompt:
+    - name: confirm
+      prompt: >-
+        This DELETES every k3d cluster (hub included, with all Vault and MinIO
+        data), the shared network and the local Vault keys. Type 'yes' to proceed
+      private: false
+
+  pre_tasks:
+    - name: Require explicit confirmation
+      ansible.builtin.assert:
+        that: confirm | lower == 'yes'
+        fail_msg: "Teardown aborted (confirmation was not 'yes')."
+        success_msg: "Confirmed — tearing the lab down."
+
+  tasks:
+    # ========================================================================
+    # 1 — k3d clusters (this takes Vault, MinIO and the monitoring stack too)
+    # ========================================================================
+    - name: List existing k3d clusters
+      ansible.builtin.command: "k3d cluster list -o json"
+      register: k3d_list
+      changed_when: false
+      failed_when: false
+
+    - name: Delete the k3d clusters
+      ansible.builtin.command: "k3d cluster delete {{ item.name }}"
+      loop: "{{ all_clusters }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when:
+        - k3d_list.rc == 0
+        - item.name in (k3d_list.stdout | default('[]') | from_json | map(attribute='name') | list)
+
+    # ========================================================================
+    # 2 — Legacy standalone containers
+    # ========================================================================
+    # Vault and MinIO used to run as bare Docker containers beside the
+    # clusters. Cleaned up here so a host that ran the old revision of this lab
+    # ends up in the same state as a fresh one.
+    - name: Remove the legacy Vault and MinIO containers
+      ansible.builtin.command: "docker rm -f {{ item }}"
+      loop:
+        - external-vault
+        - minio-s3
+      failed_when: false
+      changed_when: true
+
+    - name: Remove the legacy Docker volumes
+      ansible.builtin.command: "docker volume rm {{ item }}"
+      loop:
+        - vault-data
+        - minio-data
+      failed_when: false
+      changed_when: true
+
+    - name: Check for a legacy SigNoz Docker Compose deployment
+      ansible.builtin.stat:
+        path: "{{ lab_user_home }}/signoz/pours/deployment"
+      register: signoz_dir
+
+    - name: Stop and remove the legacy SigNoz Compose stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ lab_user_home }}/signoz/pours/deployment"
+        state: absent
+        remove_volumes: true
+      when: signoz_dir.stat.exists
+
+    # ========================================================================
+    # 3 — Shared network
+    # ========================================================================
+    - name: Remove the shared Docker network
+      ansible.builtin.command: "docker network rm {{ lab_network }}"
+      failed_when: false
+      changed_when: true
+
+    # ========================================================================
+    # 4 — Host-side files and firewall rules
+    # ========================================================================
+    - name: Remove the lab's iptables INPUT rules
+      become: true
+      ansible.builtin.iptables:
+        chain: INPUT
+        protocol: tcp
+        destination_port: "{{ item.host }}"
+        jump: ACCEPT
+        state: absent
+      loop: "{{ hub_published_ports }}"
+      loop_control:
+        label: "{{ item.host }} ({{ item.label }})"
+      failed_when: false
+
+    - name: Remove the managed block from ~/.bashrc
+      ansible.builtin.blockinfile:
+        path: "{{ lab_user_home }}/.bashrc"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK: LAB CLI ENVS"
+        state: absent
+
+    # become, because a lab built by an older revision of this playbook (which
+    # escalated the whole play) left these owned by root — and /tmp is sticky, so
+    # the connecting user cannot remove them.
+    - name: Remove generated files and working directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      # Both providers' keys files and rendered values, not just the currently
+      # selected one — teardown has to clean up after whichever was deployed.
+      loop: >-
+        {{ (secrets_providers.values() | map(attribute='keys_file') | list)
+           + (secrets_providers | list | map('regex_replace', '^(.*)$', '/tmp/\\1-values.yaml') | list)
+           + [lab_user_home ~ '/signoz',
+              csi_hostpath_checkout,
+              '/tmp/foundry.sh',
+              '/tmp/minio-hub.yaml',
+              '/tmp/kps-hub-values.yaml',
+              '/tmp/signoz-values.yaml'] }}
+
+    - name: Remove the rendered Vault backend manifests
+      become: true            # may be root-owned by an older revision
+      ansible.builtin.file:
+        path: "/tmp/vault-backends-{{ item.name }}.yaml"
+        state: absent
+      loop: "{{ clusters }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Remove the rendered per-cluster monitoring values
+      become: true            # may be root-owned by an older revision
+      ansible.builtin.file:
+        path: "/tmp/{{ item.0 }}-{{ item.1.name }}-values.yaml"
+        state: absent
+      loop: "{{ ['kps-agent', 'otel-agent'] | product(clusters) | list }}"
+      loop_control:
+        label: "{{ item.0 }}-{{ item.1.name }}"
+
+    # ========================================================================
+    # 5 — Helm repositories
+    # ========================================================================
+    - name: List the installed Helm repositories
+      ansible.builtin.command: "helm repo list -o json"
+      register: helm_repos_installed
+      failed_when: false
+      changed_when: false
+
+    - name: Remove the lab Helm repositories
+      ansible.builtin.command: "helm repo remove {{ item }}"
+      loop: "{{ helm_repos | list }}"
+      when:
+        - helm_repos_installed.rc == 0
+        - item in (helm_repos_installed.stdout | default('[]') | from_json | map(attribute='name') | list)
+      failed_when: false
+
+    - name: Teardown summary
+      ansible.builtin.debug:
+        msg:
+          - "Lab torn down. The FORWARD iptables policy and the inotify sysctls were left as-is."
+          - "Ready to re-deploy with: ansible-playbook site.yml -e host_ip=<HOST_IP>"

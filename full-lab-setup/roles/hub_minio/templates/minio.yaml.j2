@@ -1,0 +1,119 @@
+# {{ ansible_managed }}
+# MinIO on the management hub — single-node, single-drive, backed by a PVC.
+#
+# Plain manifests rather than a chart: MinIO's community chart has moved
+# repositories more than once, and a lab this small gains nothing from the
+# indirection. Everything you might want to change is a variable in
+# group_vars/all/main.yml.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ minio_namespace }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-root
+  namespace: {{ minio_namespace }}
+type: Opaque
+stringData:
+  MINIO_ROOT_USER: "{{ minio_root_user }}"
+  MINIO_ROOT_PASSWORD: "{{ minio_root_password }}"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data
+  namespace: {{ minio_namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ lab_storage_class }}
+  resources:
+    requests:
+      storage: {{ minio_data_size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: {{ minio_namespace }}
+  labels:
+    app: minio
+spec:
+  replicas: 1
+  # A single RWO volume cannot be shared, so never run two pods at once.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+        - name: minio
+          image: {{ minio_image }}
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          envFrom:
+            - secretRef:
+                name: minio-root
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: 9000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: 9000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            requests:
+              memory: 256Mi
+              cpu: 100m
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: minio-data
+---
+# One Service, reachable two ways:
+#   - LoadBalancer IP  {{ hub_service_ips.minio }}:9000  from the workload clusters
+#   - nodePorts {{ hub_node_ports.minio_api }}/{{ hub_node_ports.minio_console }} -> host ports 9000/9001
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+  namespace: {{ minio_namespace }}
+  annotations:
+    metallb.universe.tf/loadBalancerIPs: "{{ hub_service_ips.minio }}"
+spec:
+  type: LoadBalancer
+  selector:
+    app: minio
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: 9000
+      nodePort: {{ hub_node_ports.minio_api }}
+    - name: console
+      port: 9001
+      targetPort: 9001
+      nodePort: {{ hub_node_ports.minio_console }}

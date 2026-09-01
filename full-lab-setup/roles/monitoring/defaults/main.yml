@@ -1,0 +1,15 @@
+---
+grafana_admin_password: prom-operator
+prometheus_storage_size: 10Gi
+
+# --- SigNoz (otel-signoz stack only) -----------------------------------------
+signoz_admin_name: admin
+signoz_admin_email: admin@lab.local
+signoz_admin_password: "Signoz@Lab123"
+signoz_org_name: lab
+
+# Host port the hub publishes for the SigNoz UI/API.
+signoz_host_port: 8080
+
+# ClickHouse pod created by the clickhouse-operator from the chart's
+signoz_clickhouse_pod: chi-signoz-clickhouse-cluster-0-0-0

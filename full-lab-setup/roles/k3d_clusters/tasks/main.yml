@@ -1,0 +1,62 @@
+---
+# =============================================================================
+# k3d_clusters — create the hub and the workload clusters on the shared network.
+# =============================================================================
+
+- name: List existing k3d clusters
+  ansible.builtin.command: "k3d cluster list -o json"
+  register: k3d_list
+  changed_when: false
+
+- name: Create k3d clusters
+  ansible.builtin.command: >-
+    k3d cluster create {{ item.name }}
+    --servers {{ item.servers | default(1) }}
+    --agents {{ item.agents | default(1) }}
+    --network {{ lab_network }}
+    --api-port {{ item.api_port }}
+    --k3s-arg --disable=traefik@server:*
+    --k3s-arg --tls-san=host.k3d.internal@server:*
+    --k3s-arg --tls-san={{ host_ip }}@server:*
+    {% if item.name == hub_cluster.name %}
+    {% for p in hub_published_ports %} --port {{ hub_publish_address }}:{{ p.host }}:{{ p.node }}@loadbalancer{% endfor %}
+    {% endif %}
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.name not in (k3d_list.stdout | from_json | map(attribute='name') | list)
+
+- name: Merge the k3d kubeconfigs into the lab user's ~/.kube/config
+  ansible.builtin.command: >-
+    k3d kubeconfig merge --all --output {{ lab_user_home }}/.kube/config
+  changed_when: false
+
+- name: Set ownership and permissions on ~/.kube/config
+  ansible.builtin.file:
+    path: "{{ lab_user_home }}/.kube/config"
+    owner: "{{ lab_user }}"
+    group: "{{ lab_user }}"
+    mode: "0600"
+
+- name: Wait for every cluster's API server to answer
+  ansible.builtin.command: "kubectl --context {{ item.context }} get --raw /readyz"
+  register: api_ready
+  until: api_ready.rc == 0
+  retries: 30
+  delay: 5
+  changed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Taint the workload clusters' server nodes as control-plane-only
+  ansible.builtin.command: >-
+    kubectl taint node --context {{ item.context }}
+    -l node-role.kubernetes.io/control-plane
+    node-role.kubernetes.io/control-plane:NoSchedule
+    --overwrite
+  register: server_taint
+  changed_when: "'tainted' in server_taint.stdout"
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"

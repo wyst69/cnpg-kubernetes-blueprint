@@ -1,0 +1,129 @@
+---
+- name: Add the prometheus-community Helm repository
+  ansible.builtin.command: >-
+    helm repo add prometheus-community {{ helm_repos['prometheus-community'] }} --force-update
+  # --force-update rewrites the entry unconditionally, so helm always prints
+  # "has been added" — there is no change to report on a controller-local file.
+  changed_when: false
+
+- name: Update the prometheus-community Helm repository
+  ansible.builtin.command: "helm repo update prometheus-community"
+  changed_when: false
+
+# --- Hub: the central Prometheus + Grafana ------------------------------------
+- name: Render the hub kube-prometheus-stack values
+  ansible.builtin.template:
+    src: kube-prometheus-hub-values.yaml.j2
+    dest: "/tmp/kps-hub-values.yaml"
+    mode: "0644"
+
+- name: Probe the installed kube-prometheus-stack release on the hub
+  ansible.builtin.command: >-
+    helm list --namespace monitoring --filter ^kube-prometheus-stack$
+    --kube-context {{ hub_cluster.context }} -o json
+  register: kps_hub_probe
+  changed_when: false
+  failed_when: false
+
+- name: Install or upgrade kube-prometheus-stack on the hub
+  ansible.builtin.command: >-
+    helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack
+    --namespace monitoring --create-namespace
+    {% if kube_prometheus_chart_version %}--version {{ kube_prometheus_chart_version }}{% endif %}
+    --values /tmp/kps-hub-values.yaml
+    --kube-context {{ hub_cluster.context }}
+    --wait --timeout 10m
+  # helm cuts a new revision every run — see the note in hub_vault/deploy.yml.
+  changed_when: >-
+    '"status":"deployed"' not in kps_hub_probe.stdout
+    or (kube_prometheus_chart_version | length > 0
+        and ('"chart":"kube-prometheus-stack-' ~ kube_prometheus_chart_version ~ '"')
+            not in kps_hub_probe.stdout)
+
+# Same trap as Vault: kube-prometheus-stack (and the Grafana sub-chart) only
+# emit service.nodePort for type NodePort, so with LoadBalancer the nodePort is
+# auto-allocated and the published host ports (3000/9090) hit nothing. Pin them.
+- name: Pin the hub Service nodePorts
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --context
+      - "{{ hub_cluster.context }}"
+      - -n
+      - monitoring
+      - patch
+      - svc
+      - "{{ item.svc }}"
+      - -p
+      - "{{ {'spec': {'ports': [{'port': item.port | int, 'nodePort': item.node | int}]}} | to_json }}"
+  loop:
+    - {svc: kube-prometheus-stack-grafana, port: 80, node: "{{ hub_node_ports.grafana }}"}
+    - {svc: kube-prometheus-stack-prometheus, port: 9090, node: "{{ hub_node_ports.prometheus }}"}
+  loop_control:
+    label: "{{ item.svc }} -> {{ item.node }}"
+  register: kps_nodeports
+  changed_when: "'no change' not in kps_nodeports.stdout"
+
+- name: Wait for MetalLB to assign the Prometheus LoadBalancer address
+  ansible.builtin.command: >-
+    kubectl --context {{ hub_cluster.context }} -n monitoring
+    get svc kube-prometheus-stack-prometheus
+    -o jsonpath={.status.loadBalancer.ingress[0].ip}
+  register: prom_lb_ip
+  until: prom_lb_ip.stdout == hub_service_ips.prometheus
+  retries: 20
+  delay: 5
+  changed_when: false
+  failed_when: false
+
+- name: Fail if Prometheus did not get the expected LoadBalancer address
+  ansible.builtin.assert:
+    that: prom_lb_ip.stdout == hub_service_ips.prometheus
+    fail_msg: >-
+      The hub Prometheus has address '{{ prom_lb_ip.stdout | default('<none>') }}'
+      but the workload agents are configured to remote-write to
+      {{ hub_service_ips.prometheus }}.
+  when: components.monitoring.workload_agents | default(true)
+
+# --- Workload clusters: agents that push to the hub ---------------------------
+- name: Render the workload agent values
+  ansible.builtin.template:
+    src: kube-prometheus-agent-values.yaml.j2
+    dest: "/tmp/kps-agent-{{ item.name }}-values.yaml"
+    mode: "0644"
+  vars:
+    cluster: "{{ item }}"
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: components.monitoring.workload_agents | default(true)
+
+- name: Probe the installed Prometheus agent releases
+  ansible.builtin.command: >-
+    helm list --namespace monitoring --filter ^kube-prometheus-stack$
+    --kube-context {{ item.context }} -o json
+  register: kps_agent_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Install or upgrade the Prometheus agent on the workload clusters
+  ansible.builtin.command: >-
+    helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack
+    --namespace monitoring --create-namespace
+    {% if kube_prometheus_chart_version %}--version {{ kube_prometheus_chart_version }}{% endif %}
+    --values /tmp/kps-agent-{{ item.0.name }}-values.yaml
+    --kube-context {{ item.0.context }}
+    --wait --timeout 10m
+  # helm cuts a new revision every run — see the note in hub_vault/deploy.yml.
+  changed_when: >-
+    '"status":"deployed"' not in item.1.stdout
+    or (kube_prometheus_chart_version | length > 0
+        and ('"chart":"kube-prometheus-stack-' ~ kube_prometheus_chart_version ~ '"')
+            not in item.1.stdout)
+  loop: "{{ clusters | zip(kps_agent_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+  when: components.monitoring.workload_agents | default(true)

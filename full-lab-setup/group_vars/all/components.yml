@@ -1,0 +1,63 @@
+---
+# =============================================================================
+# Optional lab components
+# =============================================================================
+# Two layers, merged at the top of site.yml into a single `components` fact:
+#
+#   lab_component_defaults  the CATALOGUE — every optional tool the lab knows
+#                           how to install, with its shipped defaults.
+#                           Treat it as read-only; it documents what exists.
+#
+#   lab_components          YOUR override layer — a partial dict, recursively
+#                           merged over the catalogue. Edit it here, or pass it
+#                           on the command line:
+#
+#     ansible-playbook site.yml \
+#       -e '{"lab_components": {"monitoring": {"enabled": false}}}'
+#
+# Roles then read `components.<name>.enabled` and friends. Because the merge is
+# recursive you only ever state the keys you want to change — everything else
+# falls back to the catalogue, so an override can never leave a role reading an
+# undefined key.
+#
+# The mandatory pieces — the hub cluster, secrets, MinIO, cert-manager, ESO,
+# CNPG, MetalLB — deliberately have NO switch. They are what the lab is.
+# =============================================================================
+
+lab_component_defaults:
+
+  # --- Secrets manager --------------------------------------------------------
+  # OpenBao forked from Vault 1.14 and still speaks the same API.
+  secrets:
+    provider: openbao           # openbao | vault
+
+  # --- Persistent volumes -----------------------------------------------------
+  storage:
+    enabled: true
+    driver: csi-nfs             # csi-nfs | csi-hostpath | local-path
+    snapshots: true             # VolumeSnapshot CRDs + snapshot controller
+
+  # --- barman-cloud CNPG-I plugin --------------------------------------------
+  barman_plugin:
+    enabled: true
+
+  # --- Observability ----------------------------------------------------------
+  # stack:
+  #   crds_only       Prometheus Operator CRDs on the workload clusters and
+  #                   nothing else — lets you apply PodMonitors.
+  #   kube-prometheus kube-prometheus-stack on the HUB (Prometheus + Grafana +
+  #                   Alertmanager). With workload_agents, each workload cluster
+  #                   runs the operator in PrometheusAgent mode and remote-writes
+  #                   to the hub, so PodMonitors are honoured cluster-side while
+  #                   all the data lands centrally.
+  #   otel-signoz     SigNoz on the hub, OpenTelemetry collector DaemonSets on
+  #                   the workload clusters shipping OTLP to it.
+  monitoring:
+    enabled: true
+    stack: kube-prometheus      # crds_only | kube-prometheus | otel-signoz
+    workload_agents: true       # kube-prometheus only
+    retention: 24h
+
+# --- Your overrides ----------------------------------------------------------
+# Empty means "take the catalogue as-is".
+lab_components: {}

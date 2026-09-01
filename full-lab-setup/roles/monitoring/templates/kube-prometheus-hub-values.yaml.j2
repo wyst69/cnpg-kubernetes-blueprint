@@ -1,0 +1,100 @@
+# {{ ansible_managed }}
+# kube-prometheus-stack on the management hub — the central store.
+#
+# The workload clusters do not get scraped from here (cross-cluster scraping
+# would mean exposing every kubelet). They run their own agent and push, so
+# this Prometheus only needs a remote-write receiver.
+
+crds:
+  enabled: true
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    resources:
+      requests:
+        memory: 64Mi
+        cpu: 10m
+
+prometheusOperator:
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 25m
+
+kube-state-metrics:
+  resources:
+    requests:
+      memory: 64Mi
+      cpu: 10m
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      memory: 32Mi
+      cpu: 10m
+
+grafana:
+  enabled: true
+  adminPassword: "{{ grafana_admin_password }}"
+
+  # The biggest single consumer on the hub — the two config sidecars plus
+  # Grafana's own caches.
+  resources:
+    requests:
+      memory: 512Mi
+      cpu: 50m
+
+  sidecar:
+    dashboards:
+      multicluster:
+        global:
+          enabled: true
+
+  service:
+    type: LoadBalancer
+    port: 80
+    # nodePort is patched in by the role: the chart drops it for LoadBalancer.
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "{{ hub_service_ips.grafana }}"
+
+prometheus:
+  service:
+    type: LoadBalancer
+    port: 9090
+    # nodePort is patched in by the role: the chart drops it for LoadBalancer.
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "{{ hub_service_ips.prometheus }}"
+
+  prometheusSpec:
+    resources:
+      requests:
+        memory: 1Gi
+        cpu: 100m
+
+    # What the workload-cluster agents push into.
+    enableRemoteWriteReceiver: true
+    retention: {{ components.monitoring.retention }}
+
+    scrapeClasses:
+      - name: hub-cluster-label
+        default: true
+        relabelings:
+          - action: replace
+            targetLabel: cluster
+            replacement: {{ hub_cluster.name }}
+
+    # Pick up PodMonitors/ServiceMonitors regardless of Helm release labels —
+    # CNPG's generated PodMonitors carry none.
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: {{ lab_storage_class }}
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: {{ prometheus_storage_size }}

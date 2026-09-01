@@ -1,0 +1,55 @@
+---
+# =============================================================================
+# vault_integration — the cluster-side objects that consume the hub's Vault:
+# one ClusterSecretStore (ESO) and two ClusterIssuers (cert-manager) per
+# workload cluster.
+# =============================================================================
+
+- name: Render the Vault backend manifests
+  ansible.builtin.template:
+    src: vault-backends.yaml.j2
+    dest: "/tmp/vault-backends-{{ item.name }}.yaml"
+    mode: "0644"
+  vars:
+    cluster: "{{ item }}"
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Deploy the ClusterSecretStore and ClusterIssuers
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.context }}
+    -f /tmp/vault-backends-{{ item.name }}.yaml
+  register: backends_apply
+  changed_when: "'created' in backends_apply.stdout or 'configured' in backends_apply.stdout"
+  until: backends_apply.rc == 0
+  retries: 10
+  delay: 6
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Wait for the ClusterSecretStore to report Ready
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} wait
+    --for=condition=Ready clustersecretstore/vault-backend
+    --timeout={{ integration_ready_timeout }}
+  register: css_ready
+  changed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Wait for the ClusterIssuers to report Ready
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} wait
+    --for=condition=Ready clusterissuer --all
+    --timeout={{ integration_ready_timeout }}
+  register: issuer_ready
+  changed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+  when: >-
+    (css_ready.results | rejectattr('stdout', 'equalto', 'True') | list | length > 0) or
+    (issuer_ready.results | rejectattr('stdout', 'equalto', 'True') | list | length > 0)

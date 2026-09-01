@@ -1,0 +1,50 @@
+---
+# =============================================================================
+# cert_manager — cert-manager on the workload clusters, plus the RBAC that lets
+# it authenticate to the hub's Vault.
+#
+# Two bindings matter here:
+#   system:auth-delegator      lets Vault call the cluster's TokenReview API to
+#                              validate the ServiceAccount tokens ESO and
+#                              cert-manager present
+#   serviceaccounts/token      lets cert-manager mint its own audience-scoped
+#                              token for the Vault issuer
+# =============================================================================
+
+- name: Probe for the cert-manager controller
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n cert-manager get deploy cert-manager -o name
+  register: cm_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Install cert-manager
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
+    -f {{ cert_manager_url }}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ clusters | zip(cm_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Apply the Vault-auth and cert-manager RBAC
+  ansible.builtin.command: "kubectl apply --context {{ item.context }} -f -"
+  args:
+    stdin: "{{ lookup('ansible.builtin.file', 'vault-auth-rbac.yaml') }}"
+  register: rbac_apply
+  changed_when: "'created' in rbac_apply.stdout or 'configured' in rbac_apply.stdout"
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Wait for the cert-manager deployments
+  ansible.builtin.command: >-
+    kubectl --context {{ item.0.context }} -n cert-manager
+    rollout status deploy/{{ item.1 }} --timeout=180s
+  changed_when: false
+  loop: "{{ clusters | product(['cert-manager', 'cert-manager-webhook', 'cert-manager-cainjector']) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}/{{ item.1 }}"

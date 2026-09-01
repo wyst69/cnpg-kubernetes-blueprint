@@ -1,0 +1,83 @@
+---
+# =============================================================================
+# Pinned versions
+# =============================================================================
+# Anything tracking `main` or `:latest` is called out below — those are the
+# knobs that make a re-run drift over time.
+
+# --- Manifest URLs -----------------------------------------------------------
+cert_manager_url: "https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml"
+cnpg_url: "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml"
+barman_plugin_url: "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.13.0/manifest.yaml"
+metallb_url: "https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml"
+
+# The CRD bundle is pinned to the same release as the Helm chart.
+eso_version: "2.9.0"
+eso_crds_url: "https://raw.githubusercontent.com/external-secrets/external-secrets/v{{ eso_version }}/deploy/crds/bundle.yaml"
+
+# --- CSI hostpath / snapshots -------------------------------------------------
+csi_snapshotter_version: "v8.2.0"
+csi_snapshotter_base: "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/{{ csi_snapshotter_version }}"
+csi_snapshot_crd_urls:
+  - "{{ csi_snapshotter_base }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml"
+  - "{{ csi_snapshotter_base }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml"
+  - "{{ csi_snapshotter_base }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml"
+csi_snapshot_controller_url: "{{ csi_snapshotter_base }}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml"
+
+# NOT PINNED — the hostpath driver is deployed from the tip of `master`, the
+# way its own deploy.sh expects.
+csi_hostpath_repo: "https://github.com/kubernetes-csi/csi-driver-host-path.git"
+csi_hostpath_version: master
+csi_hostpath_checkout: "/tmp/csi-driver-host-path"
+
+# --- CSI NFS (default storage driver) -----------------------------------------
+# Pinned to v4.13.4
+csi_nfs_version: "v4.13.4"
+csi_nfs_base: "https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/{{ csi_nfs_version }}/deploy"
+csi_nfs_manifest_urls:
+  - "{{ csi_nfs_base }}/rbac-csi-nfs.yaml"
+  - "{{ csi_nfs_base }}/csi-nfs-driverinfo.yaml"
+  - "{{ csi_nfs_base }}/csi-nfs-controller.yaml"
+  - "{{ csi_nfs_base }}/csi-nfs-node.yaml"
+nfs_server_image: "itsthenetwork/nfs-server-alpine:latest"
+
+# --- Prometheus Operator CRDs -------------------------------------------------
+# NOT PINNED — tracks prometheus-operator `main`, matching the previous
+# revision of this lab. Swap `main` for a tag to freeze it.
+prom_operator_ref: main
+prom_crd_base: "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/{{ prom_operator_ref }}/example/prometheus-operator-crd"
+prom_crd_names:
+  - alertmanagerconfigs
+  - alertmanagers
+  - podmonitors
+  - probes
+  - prometheusagents
+  - prometheuses
+  - prometheusrules
+  - scrapeconfigs
+  - servicemonitors
+  - thanosrulers
+
+# --- Helm repositories --------------------------------------------------------
+helm_repos:
+  hashicorp: "https://helm.releases.hashicorp.com"
+  openbao: "https://openbao.github.io/openbao-helm"
+  external-secrets: "https://charts.external-secrets.io"
+  prometheus-community: "https://prometheus-community.github.io/helm-charts"
+  open-telemetry: "https://open-telemetry.github.io/opentelemetry-helm-charts"
+  signoz: "https://charts.signoz.io"
+
+# --- Helm chart versions ------------------------------------------------------
+# Empty string = whatever the repo's latest is. Pin these once you have a
+# combination you are happy with.
+vault_chart_version: ""
+openbao_chart_version: ""
+# Pinned — must stay in step with eso_version above (same release).
+eso_chart_version: "{{ eso_version }}"
+kube_prometheus_chart_version: ""
+otel_collector_chart_version: ""
+signoz_chart_version: ""
+
+# --- Container images ---------------------------------------------------------
+minio_image: "minio/minio:RELEASE.2025-04-22T22-12-26Z"
+minio_mc_url: "https://dl.min.io/client/mc/release/linux-amd64/mc"

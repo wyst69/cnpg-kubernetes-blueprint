@@ -1,0 +1,5 @@
+---
+# Image tag and chart version are per-provider — see secrets_providers in
+# group_vars/all/main.yml. Only the volume size is shared, and
+# secrets_values_path is derived from the provider name there too.
+secrets_data_size: 2Gi

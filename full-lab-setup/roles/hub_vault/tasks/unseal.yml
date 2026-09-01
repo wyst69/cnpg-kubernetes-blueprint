@@ -1,0 +1,71 @@
+---
+# Vault runs with the file backend, so it comes up sealed after every pod
+# restart. Init happens exactly once; unseal happens whenever it is needed.
+
+- name: Read the {{ secrets_cfg.display }} status
+  ansible.builtin.command: "{{ secrets_exec_plain }} status -format=json"
+  register: secrets_status_raw
+  failed_when: false
+  changed_when: false
+  until: secrets_status_raw.stdout | default('') | length > 0
+  retries: 12
+  delay: 5
+
+- name: Set the {{ secrets_cfg.display }} status fact
+  ansible.builtin.set_fact:
+    secrets_status: "{{ secrets_status_raw.stdout | from_json }}"
+
+# --- First run: initialise and persist the keys -------------------------------
+- name: Initialise {{ secrets_cfg.display }} (first run only)
+  ansible.builtin.command: >-
+    {{ secrets_exec_plain }} operator init -key-shares=1 -key-threshold=1 -format=json
+  register: secrets_init_raw
+  no_log: true
+  when: not secrets_status.initialized
+
+- name: Save the {{ secrets_cfg.display }} unseal key and root token
+  ansible.builtin.copy:
+    dest: "{{ secrets_keys_file }}"
+    content: "{{ secrets_init_raw.stdout }}"
+    owner: "{{ lab_user }}"
+    group: "{{ lab_user }}"
+    mode: "0600"
+  no_log: true
+  when: not secrets_status.initialized
+
+- name: Fail early if the keys file is missing
+  ansible.builtin.stat:
+    path: "{{ secrets_keys_file }}"
+  register: secrets_keys_stat
+  failed_when: not secrets_keys_stat.stat.exists
+
+- name: Read the stored {{ secrets_cfg.display }} keys
+  ansible.builtin.slurp:
+    src: "{{ secrets_keys_file }}"
+  register: secrets_keys_raw
+  no_log: true
+
+- name: Set the {{ secrets_cfg.display }} credential facts
+  ansible.builtin.set_fact:
+    secrets_unseal_key: "{{ (secrets_keys_raw.content | b64decode | from_json).unseal_keys_b64[0] }}"
+    secrets_token: "{{ (secrets_keys_raw.content | b64decode | from_json).root_token }}"
+  no_log: true
+
+- name: Unseal {{ secrets_cfg.display }}
+  ansible.builtin.command: "{{ secrets_exec_plain }} operator unseal {{ secrets_unseal_key }}"
+  no_log: true
+  when: secrets_status.sealed | default(true)
+
+- name: Wait for {{ secrets_cfg.display }} to report unsealed
+  ansible.builtin.command: "{{ secrets_exec_plain }} status -format=json"
+  register: secrets_status_post
+  changed_when: false
+  failed_when: false
+  until: not ((secrets_status_post.stdout | default('{}') | from_json).sealed | default(true))
+  retries: 10
+  delay: 3
+
+- name: Confirm {{ secrets_cfg.display }} is unsealed
+  ansible.builtin.assert:
+    that: not (secrets_status_post.stdout | default('{}') | from_json).sealed | default(true)
+    fail_msg: "{{ secrets_cfg.display }} is still sealed — check `{{ secrets_kubectl }} logs {{ secrets_pod }}`."

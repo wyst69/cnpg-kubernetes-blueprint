@@ -1,0 +1,17 @@
+---
+# =============================================================================
+# storage — VolumeSnapshot support and the storage driver (csi-nfs by default,
+# csi-hostpath and local-path also selectable — see components.yml).
+# =============================================================================
+
+- name: Include VolumeSnapshot support
+  ansible.builtin.include_tasks: snapshots.yml
+  when: components.storage.snapshots | default(true)
+
+- name: Include the CSI hostpath driver
+  ansible.builtin.include_tasks: csi_hostpath.yml
+  when: components.storage.driver == 'csi-hostpath'
+
+- name: Include the CSI NFS driver
+  ansible.builtin.include_tasks: csi_nfs.yml
+  when: components.storage.driver == 'csi-nfs'

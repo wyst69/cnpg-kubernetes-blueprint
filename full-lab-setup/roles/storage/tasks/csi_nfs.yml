@@ -1,0 +1,139 @@
+---
+# =============================================================================
+# csi_nfs — an in-cluster NFS server + nfs.csi.k8s.io, the default storage
+# driver. PVs from it carry no node affinity, so pod anti-affinity actually
+# works (unlike csi-hostpath's single-node-pinned PVs). Deliberately a lab-only
+# trade: NFS is a known anti-pattern for PGDATA in production.
+# =============================================================================
+
+- name: Render the NFS server manifest
+  ansible.builtin.template:
+    src: nfs-server.yaml.j2
+    dest: "{{ nfs_server_manifest_path }}"
+    mode: "0644"
+
+- name: Probe for the NFS server deployment
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n default get deploy nfs-server -o name
+  register: nfs_server_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Deploy the in-cluster NFS server
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
+    -f {{ nfs_server_manifest_path }}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ all_clusters | zip(nfs_server_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Wait for the NFS server rollout
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n default
+    rollout status deploy/nfs-server --timeout=180s
+  changed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Probe for the csi-nfs controller
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n kube-system get deploy csi-nfs-controller -o name
+  register: csi_nfs_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Deploy csi-driver-nfs
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
+    {% for url in csi_nfs_manifest_urls %} -f {{ url }}{% endfor %}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ all_clusters | zip(csi_nfs_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Wait for the csi-nfs controller
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n kube-system
+    rollout status deploy/csi-nfs-controller --timeout=180s
+  changed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Wait for the csi-nfs node DaemonSet
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n kube-system
+    rollout status daemonset/csi-nfs-node --timeout=180s
+  changed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Probe for the StorageClass and VolumeSnapshotClass
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} get
+    storageclass/nfs-csi
+    {% if components.storage.snapshots | default(true) %}volumesnapshotclass/nfs-csi-snapclass{% endif %}
+    -o name
+  register: nfs_class_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Create the NFS StorageClass and the VolumeSnapshotClass
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts -f -
+  args:
+    stdin: |
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: nfs-csi
+        annotations:
+          storageclass.kubernetes.io/is-default-class: "true"
+      provisioner: nfs.csi.k8s.io
+      parameters:
+        server: nfs-server.default.svc.cluster.local
+        share: /
+      allowVolumeExpansion: true
+      reclaimPolicy: Delete
+      volumeBindingMode: Immediate
+      mountOptions:
+        - nfsvers=4.1
+      {% if components.storage.snapshots | default(true) %}
+      ---
+      apiVersion: snapshot.storage.k8s.io/v1
+      kind: VolumeSnapshotClass
+      metadata:
+        name: nfs-csi-snapclass
+        annotations:
+          snapshot.storage.kubernetes.io/is-default-class: "true"
+      driver: nfs.csi.k8s.io
+      deletionPolicy: Delete
+      {% endif %}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ all_clusters | zip(nfs_class_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Remove default-class status from the k3s local-path StorageClass
+  ansible.builtin.command: >-
+    kubectl annotate storageclass local-path
+    --context {{ item.context }}
+    storageclass.kubernetes.io/is-default-class-
+    --overwrite
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+  changed_when: false
+  failed_when: false

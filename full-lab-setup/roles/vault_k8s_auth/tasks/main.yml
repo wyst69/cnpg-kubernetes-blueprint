@@ -1,0 +1,123 @@
+---
+# =============================================================================
+# vault_k8s_auth — one Kubernetes auth mount per workload cluster.
+#
+# Runs after cert-manager, because the token reviewer JWT is minted from the
+# cert-manager ServiceAccount.
+# =============================================================================
+
+# Only needed when this role is run on its own (--tags vault); the hub_vault
+# role sets these facts during a full run.
+- name: Read the stored {{ secrets_cfg.display }} keys
+  ansible.builtin.slurp:
+    src: "{{ secrets_keys_file }}"
+  register: secrets_keys_standalone
+  no_log: true
+  when: secrets_token is not defined
+
+- name: Set the {{ secrets_cfg.display }} token fact
+  ansible.builtin.set_fact:
+    secrets_token: "{{ (secrets_keys_standalone.content | b64decode | from_json).root_token }}"
+  no_log: true
+  when: secrets_token is not defined
+
+# --- Auth mounts ---------------------------------------------------------------
+- name: List the {{ secrets_cfg.display }} auth methods
+  ansible.builtin.command: "{{ secrets_exec }} auth list -format=json"
+  register: secrets_auths
+  changed_when: false
+  no_log: true
+
+- name: Enable a Kubernetes auth path per cluster
+  ansible.builtin.command: >-
+    {{ secrets_exec }} auth enable -path={{ item.auth_path }} kubernetes
+  no_log: true
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.auth_path }}"
+  when: (item.auth_path + '/') not in (secrets_auths.stdout | from_json)
+
+# --- Auth configuration ---------------------------------------------------------
+# Guarded on the existing config so a re-run does not mint a fresh 10-year
+# reviewer token every time.
+- name: Read the existing auth configuration per cluster
+  ansible.builtin.command: "{{ secrets_exec }} read auth/{{ item.auth_path }}/config"
+  register: auth_cfg
+  failed_when: false
+  changed_when: false
+  no_log: true
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.auth_path }}"
+
+- name: Extract each cluster's CA certificate
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    kubectl config view --raw --context {{ item.context }} --minify
+    -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d
+  args:
+    executable: /bin/bash
+  register: ca_certs
+  changed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+# Straight into the Vault pod — no host temp files, no docker cp.
+- name: Stage each cluster's CA certificate inside the {{ secrets_cfg.display }} pod
+  ansible.builtin.command: >-
+    {{ secrets_kubectl }} exec -i {{ secrets_pod }} --
+    sh -c "cat > /tmp/ca-{{ item.0.name }}.crt"
+  args:
+    stdin: "{{ item.1.stdout }}\n"
+  changed_when: false
+  loop: "{{ clusters | zip(ca_certs.results) | list }}"
+  loop_control:
+    label: "{{ item.0.name }}"
+
+- name: Mint a long-lived token reviewer JWT
+  ansible.builtin.command: >-
+    kubectl create token cert-manager -n cert-manager
+    --duration=87600h --context {{ item.0.context }}
+  register: reviewer_tokens
+  no_log: true
+  changed_when: item.1.rc != 0
+  loop: "{{ clusters | zip(auth_cfg.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+  when: item.1.rc != 0
+
+- name: Configure the {{ secrets_cfg.display }} Kubernetes auth endpoint
+  ansible.builtin.command: >-
+    {{ secrets_exec }} write auth/{{ item.0.auth_path }}/config
+    kubernetes_host=https://host.k3d.internal:{{ item.0.api_port }}
+    kubernetes_ca_cert=@/tmp/ca-{{ item.0.name }}.crt
+    token_reviewer_jwt={{ item.2.stdout }}
+    disable_iss_validation=true
+  no_log: true
+  loop: "{{ clusters | zip(auth_cfg.results, reviewer_tokens.results) | list }}"
+  loop_control:
+    label: "{{ item.0.auth_path }}"
+  when: item.1.rc != 0
+
+# --- Roles -----------------------------------------------------------------------
+- name: Read the existing {{ secrets_cfg.display }} cluster roles
+  ansible.builtin.command: >-
+    {{ secrets_exec }} read auth/{{ item.0.auth_path }}/role/{{ item.1.name }}
+  register: role_checks
+  failed_when: false
+  changed_when: false
+  no_log: true
+  loop: "{{ clusters | product(secrets_cluster_roles) | list }}"
+  loop_control:
+    label: "{{ item.0.auth_path }}/{{ item.1.name }}"
+
+- name: Create the {{ secrets_cfg.display }} cluster roles
+  ansible.builtin.command: >-
+    {{ secrets_exec }} write auth/{{ item.0.0.auth_path }}/role/{{ item.0.1.name }}
+    {{ item.0.1.args | join(' ') }}
+  no_log: true
+  loop: "{{ (clusters | product(secrets_cluster_roles) | list) | zip(role_checks.results) | list }}"
+  loop_control:
+    label: "{{ item.0.0.auth_path }}/{{ item.0.1.name }}"
+  when: item.1.rc != 0

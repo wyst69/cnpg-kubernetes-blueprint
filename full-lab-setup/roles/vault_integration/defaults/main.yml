@@ -1,0 +1,3 @@
+---
+# How long to wait for the ClusterSecretStore / ClusterIssuers to go Ready.
+integration_ready_timeout: 240s

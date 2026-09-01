@@ -1,0 +1,72 @@
+---
+# =============================================================================
+# external_secrets — the ESO operator on the workload clusters.
+# =============================================================================
+
+- name: Probe for the external-secrets CRDs
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    kubectl --context {{ item.context }} get crd -o name | grep -c external-secrets.io
+  args:
+    executable: /bin/bash
+  register: eso_crd_probe
+  changed_when: false
+  failed_when: false # grep exits 1 when the count is zero
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Install the external-secrets CRDs
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side -f {{ eso_crds_url }}
+  # Reports changed on first install only. Bumping eso_version re-applies the
+  # bundle silently — server-side apply gives us nothing to detect that with.
+  changed_when: "item.1.stdout | trim | int == 0"
+  loop: "{{ clusters | zip(eso_crd_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Add the external-secrets Helm repository
+  ansible.builtin.command: >-
+    helm repo add external-secrets {{ helm_repos['external-secrets'] }} --force-update
+  # --force-update rewrites the entry unconditionally, so helm always prints
+  # "has been added" — there is no change to report on a controller-local file.
+  changed_when: false
+
+- name: Update the external-secrets Helm repository
+  ansible.builtin.command: "helm repo update external-secrets"
+  changed_when: false
+
+- name: Probe the installed external-secrets release
+  ansible.builtin.command: >-
+    helm list --namespace external-secrets --filter ^external-secrets$
+    --kube-context {{ item.context }} -o json
+  register: eso_release_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Install or upgrade the external-secrets operator
+  ansible.builtin.command: >-
+    helm upgrade --install external-secrets external-secrets/external-secrets
+    --namespace external-secrets --create-namespace
+    {% if eso_chart_version %}--version {{ eso_chart_version }}{% endif %}
+    --set installCRDs=false
+    --kube-context {{ item.0.context }}
+  # `helm list -o json` reports the chart as "external-secrets-<version>". If
+  # that is already what is deployed, this run is a no-op re-converge.
+  changed_when: "('external-secrets-' ~ eso_version) not in item.1.stdout"
+  loop: "{{ clusters | zip(eso_release_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Wait for the external-secrets webhook
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n external-secrets
+    rollout status deploy/external-secrets-webhook --timeout=180s
+  changed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"

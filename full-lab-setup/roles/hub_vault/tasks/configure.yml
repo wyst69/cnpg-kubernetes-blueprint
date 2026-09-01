@@ -1,0 +1,117 @@
+---
+# Cluster-independent Vault configuration: secrets engines, the PKI root CA and
+# its roles, and the two policies. Every write is guarded by a read so re-runs
+# are genuine no-ops.
+
+# --- Secrets engines ----------------------------------------------------------
+- name: List the {{ secrets_cfg.display }} secrets engines
+  ansible.builtin.command: "{{ secrets_exec }} secrets list -format=json"
+  register: secrets_engines
+  changed_when: false
+  no_log: true
+
+- name: Enable the kv-v2 secrets engine
+  ansible.builtin.command: "{{ secrets_exec }} secrets enable -path=kv kv-v2"
+  no_log: true
+  when: "'kv/' not in (secrets_engines.stdout | from_json)"
+
+- name: Enable the pki secrets engine
+  ansible.builtin.command: "{{ secrets_exec }} secrets enable pki"
+  no_log: true
+  when: "'pki/' not in (secrets_engines.stdout | from_json)"
+
+- name: Extend the pki max lease TTL to 10 years
+  ansible.builtin.command: "{{ secrets_exec }} secrets tune -max-lease-ttl=87600h pki"
+  no_log: true
+  changed_when: true
+  when: "'pki/' not in (secrets_engines.stdout | from_json)"
+
+# --- PKI root CA --------------------------------------------------------------
+- name: Check for an existing PKI root CA
+  ansible.builtin.command: "{{ secrets_exec }} read -field=certificate pki/cert/ca"
+  register: pki_ca
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Generate the PKI root CA
+  ansible.builtin.command: >-
+    {{ secrets_exec }} write pki/root/generate/internal
+    common_name=cnpg-root-ca ttl=87600h
+  no_log: true
+  when: pki_ca.rc != 0 or 'BEGIN CERTIFICATE' not in pki_ca.stdout
+
+# --- PKI roles ----------------------------------------------------------------
+# Two roles mirroring CNPG's two certificate types: server certificates bound to
+# in-cluster service names, and client certificates for mTLS authentication
+# where the CN carries the Postgres role name.
+- name: Check the PKI server role
+  ansible.builtin.command: "{{ secrets_exec }} read pki/roles/cnpg-server-role"
+  register: pki_server_role
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Create the PKI server role
+  ansible.builtin.command: >-
+    {{ secrets_exec }} write pki/roles/cnpg-server-role
+    allowed_domains=svc,svc.cluster.local
+    allow_subdomains=true
+    allow_any_name=false
+    enforce_hostnames=true
+    require_cn=false
+    max_ttl=720h
+  no_log: true
+  when: pki_server_role.rc != 0
+
+- name: Check the PKI client role
+  ansible.builtin.command: "{{ secrets_exec }} read pki/roles/cnpg-client-role"
+  register: pki_client_role
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Create the PKI client role
+  ansible.builtin.command: >-
+    {{ secrets_exec }} write pki/roles/cnpg-client-role
+    allow_any_name=true
+    enforce_hostnames=false
+    require_cn=true
+    max_ttl=720h
+  no_log: true
+  when: pki_client_role.rc != 0
+
+# --- Policies -----------------------------------------------------------------
+- name: Check the eso-policy
+  ansible.builtin.command: "{{ secrets_exec }} policy read eso-policy"
+  register: eso_policy
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Write the eso-policy
+  ansible.builtin.command: "{{ secrets_exec_i }} policy write eso-policy -"
+  args:
+    stdin: |
+      path "kv/data/cnpg/*" {
+        capabilities = ["read"]
+      }
+  no_log: true
+  when: eso_policy.rc != 0
+
+- name: Check the cert-manager-policy
+  ansible.builtin.command: "{{ secrets_exec }} policy read cert-manager-policy"
+  register: cm_policy
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Write the cert-manager-policy
+  ansible.builtin.command: "{{ secrets_exec_i }} policy write cert-manager-policy -"
+  args:
+    stdin: |
+      path "pki/sign/cnpg-*" {
+        capabilities = ["create", "update"]
+      }
+  no_log: true
+  when: cm_policy.rc != 0

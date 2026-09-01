@@ -1,0 +1,34 @@
+---
+# =============================================================================
+# barman_plugin — the barman-cloud CNPG-I plugin on the workload clusters.
+#
+# Optional: components.barman_plugin.enabled
+# =============================================================================
+
+- name: Probe for the barman-cloud plugin
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n cnpg-system get deploy barman-cloud -o name
+  register: barman_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Install the barman-cloud CNPG-I plugin
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
+    -f {{ barman_plugin_url }}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ clusters | zip(barman_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Wait for the barman-cloud plugin rollout
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n cnpg-system
+    rollout status deploy/barman-cloud --timeout=180s
+  changed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"

@@ -1,0 +1,23 @@
+---
+# Applied to the workload clusters in every variant.
+- name: Probe for the Prometheus Operator CRDs
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    kubectl --context {{ item.context }} get crd -o name | grep -c monitoring.coreos.com
+  args:
+    executable: /bin/bash
+  register: prom_crd_probe
+  changed_when: false
+  failed_when: false # grep exits 1 when the count is zero
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Apply the Prometheus Operator CRDs to the workload clusters
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
+    {% for crd in prom_crd_names %} -f {{ prom_crd_base }}/monitoring.coreos.com_{{ crd }}.yaml{% endfor %}
+  changed_when: "item.1.stdout | trim | int < prom_crd_names | length"
+  loop: "{{ clusters | zip(prom_crd_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"

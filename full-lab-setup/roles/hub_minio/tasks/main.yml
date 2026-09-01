@@ -1,0 +1,81 @@
+---
+# =============================================================================
+# hub_minio — the S3 endpoint barman-cloud archives WAL and base backups to.
+# =============================================================================
+
+- name: Render the MinIO manifests
+  ansible.builtin.template:
+    src: minio.yaml.j2
+    dest: "{{ minio_manifest_path }}"
+    mode: "0644"
+
+- name: Probe for the MinIO deployment
+  ansible.builtin.command: >-
+    kubectl --context {{ hub_cluster.context }} -n {{ minio_namespace }}
+    get deploy minio -o name
+  register: minio_probe
+  changed_when: false
+  failed_when: false
+
+# --server-side for the same reason as the other bundles: client-side apply kept
+# re-sending phantom patches, so this reported changed on every run. Change
+# state comes from the probe above.
+- name: Deploy MinIO on the hub
+  ansible.builtin.command: >-
+    kubectl apply --context {{ hub_cluster.context }} --server-side --force-conflicts
+    -f {{ minio_manifest_path }}
+  changed_when: "minio_probe.rc != 0"
+
+- name: Wait for the MinIO rollout
+  ansible.builtin.command: >-
+    kubectl --context {{ hub_cluster.context }} -n {{ minio_namespace }}
+    rollout status deploy/minio --timeout=300s
+  changed_when: false
+
+- name: Wait for MetalLB to assign the MinIO LoadBalancer address
+  ansible.builtin.command: >-
+    kubectl --context {{ hub_cluster.context }} -n {{ minio_namespace }}
+    get svc minio -o jsonpath={.status.loadBalancer.ingress[0].ip}
+  register: minio_lb_ip
+  until: minio_lb_ip.stdout == hub_service_ips.minio
+  retries: 20
+  delay: 5
+  changed_when: false
+  failed_when: false
+
+- name: Fail if MinIO did not get the expected LoadBalancer address
+  ansible.builtin.assert:
+    that: minio_lb_ip.stdout == hub_service_ips.minio
+    fail_msg: >-
+      MinIO's Service has address '{{ minio_lb_ip.stdout | default('<none>') }}'
+      but the workload clusters are configured to reach it at
+      {{ hub_service_ips.minio }}.
+
+# --- Buckets ------------------------------------------------------------------
+# Driven from the host through the published nodePort, so `mc` stays usable
+# interactively afterwards with the same alias.
+- name: Configure the MinIO CLI alias
+  ansible.builtin.command: >-
+    mc alias set {{ minio_mc_alias }} {{ minio_endpoint_host }}
+    {{ minio_root_user }} {{ minio_root_password }}
+  register: mc_alias
+  until: mc_alias.rc == 0
+  retries: 12
+  delay: 5
+  changed_when: false
+  no_log: true
+
+- name: Probe for the lab buckets
+  ansible.builtin.command: "mc ls {{ minio_mc_alias }}/{{ item }}"
+  register: mc_bucket_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ minio_buckets }}"
+
+- name: Create the lab buckets
+  ansible.builtin.command: >-
+    mc mb --ignore-existing {{ minio_mc_alias }}/{{ item.0 }}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ minio_buckets | zip(mc_bucket_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0 }}"

@@ -1,0 +1,71 @@
+# In-cluster NFS server backing the csi-nfs StorageClass.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-server-data
+  namespace: default
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nfs-server
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nfs-server
+  template:
+    metadata:
+      labels:
+        app: nfs-server
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      containers:
+        - name: nfs-server
+          image: "{{ nfs_server_image }}"
+          env:
+            - name: SHARED_DIRECTORY
+              value: /exports
+          volumeMounts:
+            - mountPath: /exports
+              name: nfs-vol
+          securityContext:
+            privileged: true
+          ports:
+            - name: tcp-2049
+              containerPort: 2049
+              protocol: TCP
+            - name: udp-111
+              containerPort: 111
+              protocol: UDP
+      volumes:
+        - name: nfs-vol
+          persistentVolumeClaim:
+            claimName: nfs-server-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nfs-server
+  namespace: default
+  labels:
+    app: nfs-server
+spec:
+  type: ClusterIP
+  selector:
+    app: nfs-server
+  ports:
+    - name: tcp-2049
+      port: 2049
+      protocol: TCP
+    - name: udp-111
+      port: 111
+      protocol: UDP

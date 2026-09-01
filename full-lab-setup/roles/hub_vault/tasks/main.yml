@@ -1,0 +1,13 @@
+---
+# =============================================================================
+# hub_vault — HashiCorp Vault on the management hub.
+# =============================================================================
+
+- name: Include the {{ secrets_cfg.display }} deployment
+  ansible.builtin.include_tasks: deploy.yml
+
+- name: Include {{ secrets_cfg.display }} init and unseal
+  ansible.builtin.include_tasks: unseal.yml
+
+- name: Include the {{ secrets_cfg.display }} engine, PKI and policy configuration
+  ansible.builtin.include_tasks: configure.yml

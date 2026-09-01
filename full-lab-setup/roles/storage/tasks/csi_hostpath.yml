@@ -1,0 +1,107 @@
+---
+- name: Clone the CSI hostpath driver repository
+  ansible.builtin.git:
+    repo: "{{ csi_hostpath_repo }}"
+    dest: "{{ csi_hostpath_checkout }}"
+    version: "{{ csi_hostpath_version }}"
+    depth: 1
+
+- name: Remember the current kubectl context
+  ansible.builtin.command: kubectl config current-context
+  register: saved_context
+  changed_when: false
+  failed_when: false
+
+- name: Probe for the hostpath CSI driver
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n default
+    get statefulset csi-hostpathplugin -o name
+  register: csi_driver_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Deploy the hostpath CSI driver via the upstream deploy.sh
+  ansible.builtin.shell: |
+    kubectl config use-context {{ item.0.context }}
+    ./deploy/kubernetes-latest/deploy.sh
+  args:
+    chdir: "{{ csi_hostpath_checkout }}"
+    executable: /bin/bash
+  changed_when: true # only reached when the probe found nothing
+  when: item.1.rc != 0
+  loop: "{{ all_clusters | zip(csi_driver_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Restore the original kubectl context
+  ansible.builtin.command: "kubectl config use-context {{ saved_context.stdout | trim }}"
+  changed_when: false
+  when: saved_context.stdout | default('') | trim | length > 0
+
+- name: Probe for the StorageClass and VolumeSnapshotClass
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} get
+    storageclass/csi-hostpath-sc
+    {% if components.storage.snapshots | default(true) %}volumesnapshotclass/csi-hostpath-snapclass{% endif %}
+    -o name
+  register: csi_class_probe
+  changed_when: false
+  failed_when: false # non-zero when either object is missing
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Create the resizable StorageClass and the VolumeSnapshotClass
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts -f -
+  args:
+    stdin: |
+      apiVersion: storage.k8s.io/v1
+      kind: StorageClass
+      metadata:
+        name: csi-hostpath-sc
+        annotations:
+          storageclass.kubernetes.io/is-default-class: "true"
+      provisioner: hostpath.csi.k8s.io
+      allowVolumeExpansion: true
+      reclaimPolicy: Delete
+      volumeBindingMode: Immediate
+      {% if components.storage.snapshots | default(true) %}
+      ---
+      apiVersion: snapshot.storage.k8s.io/v1
+      kind: VolumeSnapshotClass
+      metadata:
+        name: csi-hostpath-snapclass
+        annotations:
+          snapshot.storage.kubernetes.io/is-default-class: "true"
+      driver: hostpath.csi.k8s.io
+      deletionPolicy: Delete
+      {% endif %}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ all_clusters | zip(csi_class_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Remove default-class status from the k3s local-path StorageClass
+  ansible.builtin.command: >-
+    kubectl annotate storageclass local-path
+    --context {{ item.context }}
+    storageclass.kubernetes.io/is-default-class-
+    --overwrite
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+  changed_when: false
+  failed_when: false
+
+- name: Wait for the hostpath CSI driver to be ready
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n default
+    rollout status statefulset/csi-hostpathplugin --timeout=180s
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+  changed_when: false

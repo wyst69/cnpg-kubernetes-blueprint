@@ -1,0 +1,205 @@
+---
+# =============================================================================
+# Core lab topology — network, clusters, shared-service endpoints.
+#
+#   main.yml       <- you are here: topology and endpoints
+#   components.yml <- which optional tools get installed
+#   versions.yml   <- pinned manifest URLs and chart versions
+# =============================================================================
+
+# Host LAN IP. Auto-detected from the default route; override with
+# -e host_ip=<IP> on a multi-homed host.
+host_ip: "{{ ansible_facts.default_ipv4.address | default('') }}"
+
+# The unprivileged account that owns ~/.kube/config, ~/.vault-keys.json and the
+# managed ~/.bashrc block — even when individual tasks escalate to root.
+lab_user: "{{ ansible_facts.env.SUDO_USER | default(ansible_facts.user_id) }}"
+lab_user_home: "/home/{{ lab_user }}"
+
+# --- Shared Docker network ---------------------------------------------------
+# Every k3d node container lands here, which is what makes MetalLB addresses
+# routable from one cluster to another.
+lab_network: "multi-cluster-net"
+lab_subnet: "172.20.0.0/16"
+
+# =============================================================================
+# Management hub — MANDATORY
+# =============================================================================
+# The hub is a first-class k3d cluster that hosts the services shared by every
+# workload cluster: Secrets, MinIO, and (optionally) the monitoring stack.
+hub_cluster:
+  name: hub
+  context: k3d-hub
+  api_port: 6445
+  servers: 1
+  agents: 1
+  metallb_range: "172.20.50.1-172.20.50.50"
+
+# Stable MetalLB addresses for the hub's shared services.
+hub_service_ips:
+  secrets: "172.20.50.10"
+  minio: "172.20.50.11"
+  grafana: "172.20.50.12"
+  prometheus: "172.20.50.13"
+  signoz: "172.20.50.14"
+  signoz_otlp: "172.20.50.15"
+
+# Each hub Service is type LoadBalancer *and* pins a nodePort, so the same
+# Service is reachable two ways: by LB IP from the other clusters, and by
+# published host port from your shell.
+hub_node_ports:
+  secrets: 31820
+  minio_api: 31900
+  minio_console: 31901
+  grafana: 31300
+  prometheus: 31909
+  signoz_ui: 31808
+  signoz_otlp: 31417
+
+# Host address the hub's ports are published on.
+hub_publish_address: "0.0.0.0"
+
+# host port -> hub nodePort, published through the hub's k3d serverlb.
+# These are wired at cluster-creation time, so changing them means recreating
+# the hub cluster. They are published unconditionally, even for components that
+# are switched off — an unused mapping is just a refused connection.
+hub_published_ports:
+  - {host: 8200, node: "{{ hub_node_ports.secrets }}", label: "Vault/OpenBao API/UI"}
+  - {host: 9000, node: "{{ hub_node_ports.minio_api }}", label: "MinIO S3 API"}
+  - {host: 9001, node: "{{ hub_node_ports.minio_console }}", label: "MinIO console"}
+  - {host: 3000, node: "{{ hub_node_ports.grafana }}", label: "Grafana"}
+  - {host: 9090, node: "{{ hub_node_ports.prometheus }}", label: "Prometheus"}
+  - {host: 8080, node: "{{ hub_node_ports.signoz_ui }}", label: "SigNoz UI"}
+
+# =============================================================================
+# Workload clusters
+# =============================================================================
+# Symmetrical Postgres clusters. Everything per-cluster loops over this list,
+# so adding a third one is a matter of appending an entry with a free
+# api_port, a free MetalLB range and its own Vault auth path.
+clusters:
+  - name: cluster-a
+    context: k3d-cluster-a
+    auth_path: k8s-cluster-a
+    api_port: 6443
+    servers: 1
+    agents: 3
+    metallb_range: "172.20.100.1-172.20.100.50"
+  - name: cluster-b
+    context: k3d-cluster-b
+    auth_path: k8s-cluster-b
+    api_port: 6444
+    servers: 1
+    agents: 3
+    metallb_range: "172.20.200.1-172.20.200.50"
+
+# Hub + workloads, for the roles that treat every cluster the same
+# (k3d creation, storage, MetalLB).
+all_clusters: "{{ [hub_cluster] + clusters }}"
+
+# =============================================================================
+# Shared service endpoints
+# =============================================================================
+
+# --- Secrets manager ---------------------------------------------------------
+# Set by components.secrets.provider. Everything below is derived from it, so a
+# role never needs to know which provider is active.
+secrets_provider: "{{ components.secrets.provider }}"
+
+# Per-provider differences, and nothing else. The APIs are identical, so this is
+# the whole extent of the divergence: chart, image, CLI name, env prefix, and
+# where the server keeps its data.
+secrets_providers:
+  openbao:
+    display: OpenBao
+    release: openbao
+    namespace: openbao
+    helm_repo: openbao
+    chart_name: openbao
+    image_repo: openbao/openbao
+    image_tag: "2.6.2"
+    chart_version: "{{ openbao_chart_version }}"
+    cli: bao
+    env_addr: BAO_ADDR
+    env_token: BAO_TOKEN
+    data_path: /openbao/data
+    keys_file: "{{ lab_user_home }}/.openbao-keys.json"
+  vault:
+    display: Vault
+    release: vault
+    namespace: vault
+    helm_repo: hashicorp
+    chart_name: vault
+    image_repo: hashicorp/vault
+    image_tag: "1.20.1"
+    chart_version: "{{ vault_chart_version }}"
+    cli: vault
+    env_addr: VAULT_ADDR
+    env_token: VAULT_TOKEN
+    data_path: /vault/data
+    keys_file: "{{ lab_user_home }}/.vault-keys.json"
+
+secrets_cfg: "{{ secrets_providers[secrets_provider] }}"
+secrets_release: "{{ secrets_cfg.release }}"
+secrets_namespace: "{{ secrets_cfg.namespace }}"
+secrets_pod: "{{ secrets_cfg.release }}-0"
+secrets_keys_file: "{{ secrets_cfg.keys_file }}"
+secrets_values_path: "/tmp/{{ secrets_provider }}-values.yaml"
+secrets_data_size: 2Gi
+
+# From inside the workload clusters (MetalLB LB IP on the hub):
+secrets_addr_lab: "http://{{ hub_service_ips.secrets }}:8200"
+# From the Docker host (k3d publishes the hub nodePort on localhost):
+secrets_addr_host: "http://127.0.0.1:8200"
+
+# The CLI is driven through `kubectl exec` on the hub. `secrets_exec_plain` is
+# for the unauthenticated calls (status / init / unseal); the other two carry
+# the root token and MUST be used with no_log.
+secrets_kubectl: "kubectl --context {{ hub_cluster.context }} -n {{ secrets_namespace }}"
+secrets_exec_plain: >-
+  {{ secrets_kubectl }} exec {{ secrets_pod }} --
+  env {{ secrets_cfg.env_addr }}=http://127.0.0.1:8200 {{ secrets_cfg.cli }}
+secrets_exec: >-
+  {{ secrets_kubectl }} exec {{ secrets_pod }} --
+  env {{ secrets_cfg.env_addr }}=http://127.0.0.1:8200
+  {{ secrets_cfg.env_token }}={{ secrets_token | default('') }} {{ secrets_cfg.cli }}
+secrets_exec_i: >-
+  {{ secrets_kubectl }} exec -i {{ secrets_pod }} --
+  env {{ secrets_cfg.env_addr }}=http://127.0.0.1:8200
+  {{ secrets_cfg.env_token }}={{ secrets_token | default('') }} {{ secrets_cfg.cli }}
+
+# Kubernetes-auth roles created once per workload cluster.
+secrets_cluster_roles:
+  - name: eso
+    args:
+      - bound_service_account_names=external-secrets
+      - bound_service_account_namespaces=external-secrets
+      - policies=eso-policy
+      - ttl=1h
+  - name: cert-manager
+    args:
+      - bound_service_account_names=cert-manager
+      - bound_service_account_namespaces=cert-manager
+      - audience=vault
+      - policies=cert-manager-policy
+      - ttl=1h
+
+# --- MinIO -------------------------------------------------------------------
+minio_namespace: minio
+minio_root_user: minioadmin
+minio_root_password: minioadmin
+minio_data_size: 20Gi
+minio_endpoint_lab: "http://{{ hub_service_ips.minio }}:9000"
+minio_endpoint_host: "http://127.0.0.1:9000"
+
+# Buckets created on first deploy.
+minio_buckets:
+  - cnpg-backups
+
+# --- Storage -----------------------------------------------------------------
+# Resolved from the storage component's driver setting; used by every PVC the
+# lab creates on the hub.
+lab_storage_class: >-
+  {{ 'csi-hostpath-sc'
+     if (components.storage.driver | default('csi-hostpath')) == 'csi-hostpath'
+     else 'local-path' }}

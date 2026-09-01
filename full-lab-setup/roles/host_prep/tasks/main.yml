@@ -1,0 +1,143 @@
+---
+# =============================================================================
+# host_prep — everything that touches the Docker host itself.
+#
+# Shared network, firewall, kernel limits, CLI helpers and the managed
+# ~/.bashrc block. Nothing Kubernetes-aware lives here.
+# =============================================================================
+
+- name: Create the shared lab Docker network
+  community.docker.docker_network:
+    name: "{{ lab_network }}"
+    driver: bridge
+    ipam_config:
+      - subnet: "{{ lab_subnet }}"
+
+- name: Check whether firewalld is running
+  ansible.builtin.command: systemctl is-active firewalld
+  register: firewalld_active
+  changed_when: false
+  failed_when: false
+
+- name: Select the firewall backend
+  ansible.builtin.set_fact:
+    lab_firewall: "{{ 'firewalld' if firewalld_active.stdout | trim == 'active' else 'iptables' }}"
+
+- name: Show the firewall backend in use
+  ansible.builtin.debug:
+    msg: "Firewall backend: {{ lab_firewall }}"
+
+- name: Set FORWARD chain default policy to ACCEPT
+  become: true
+  ansible.builtin.iptables:
+    chain: FORWARD
+    policy: ACCEPT
+  when: lab_firewall == 'iptables'
+
+- name: Allow inbound TCP for the hub's published ports
+  become: true
+  ansible.builtin.iptables:
+    chain: INPUT
+    protocol: tcp
+    destination_port: "{{ item.host }}"
+    jump: ACCEPT
+    action: insert
+  loop: "{{ hub_published_ports }}"
+  loop_control:
+    label: "{{ item.host }} ({{ item.label }})"
+  when: lab_firewall == 'iptables'
+
+- name: Open the hub's published ports in firewalld
+  become: true
+  ansible.posix.firewalld:
+    port: "{{ item.host }}/tcp"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ hub_published_ports }}"
+  loop_control:
+    label: "{{ item.host }} ({{ item.label }})"
+  when: lab_firewall == 'firewalld'
+
+- name: Increase inotify limits for multi-cluster k3d nodes
+  become: true
+  ansible.builtin.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_set: true
+    reload: true
+  loop:
+    - {name: 'fs.inotify.max_user_watches', value: '524288'}
+    - {name: 'fs.inotify.max_user_instances', value: '512'}
+
+- name: Ensure jq is installed
+  become: true
+  ansible.builtin.package:
+    name: jq
+    state: present
+
+- name: Check whether the nfsd kernel module is loaded
+  ansible.builtin.command: lsmod
+  register: lsmod_out
+  changed_when: false
+  when: components.storage.driver == 'csi-nfs'
+
+# k3d nodes share the host kernel, so the in-cluster NFS server's kernel-mode
+# nfsd needs this module loaded on the Docker host itself. Standard Debian/
+# Ubuntu kernels ship it already (no package install needed) — this just
+# loads it. Not persisted across reboots; re-run the playbook if that matters.
+- name: Load the nfsd kernel module
+  become: true
+  ansible.builtin.command: modprobe nfsd
+  changed_when: true
+  when:
+    - components.storage.driver == 'csi-nfs'
+    - "'nfsd' not in lsmod_out.stdout"
+
+- name: Install the MinIO client (mc)
+  become: true
+  ansible.builtin.get_url:
+    url: "{{ minio_mc_url }}"
+    dest: /usr/local/bin/mc
+    mode: "0755"
+
+- name: Ensure the kube config directory exists
+  ansible.builtin.file:
+    path: "{{ lab_user_home }}/.kube"
+    state: directory
+    owner: "{{ lab_user }}"
+    group: "{{ lab_user }}"
+    mode: "0700"
+
+- name: Configure the lab shell environment in ~/.bashrc
+  ansible.builtin.blockinfile:
+    path: "{{ lab_user_home }}/.bashrc"
+    owner: "{{ lab_user }}"
+    group: "{{ lab_user }}"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: LAB CLI ENVS"
+    block: |
+      # --- {{ secrets_cfg.display }} (hub cluster, published on the host by k3d) ---
+      export {{ secrets_cfg.env_addr }}="{{ secrets_addr_host }}"
+      if [ -f "{{ secrets_keys_file }}" ]; then
+        export {{ secrets_cfg.env_token }}="$(jq -r '.root_token' "{{ secrets_keys_file }}" 2>/dev/null)"
+      fi
+
+      # --- Kubectl shortcuts ---
+      alias k='kubectl'
+      alias kns='kubectl config set-context $(kubectl config current-context) --namespace'
+      alias ksc='kubectl config use-context'
+
+      # Instant cluster hopping
+      alias kch='kubectl config use-context {{ hub_cluster.context }}'
+      {% for c in clusters %}
+      alias kc{{ c.name | regex_replace('^cluster-', '') }}='kubectl config use-context {{ c.context }}'
+      {% endfor %}
+
+      # --- Autocompletion ---
+      if command -v kubectl &> /dev/null; then
+        source <(kubectl completion bash)
+        complete -o default -F __start_kubectl k
+        complete -o default -F __start_kubectl kns
+        complete -o default -F __start_kubectl ksc
+      fi

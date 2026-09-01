@@ -1,0 +1,45 @@
+---
+# =============================================================================
+# VolumeSnapshot support.
+# =============================================================================
+
+- name: Probe for the VolumeSnapshot CRDs
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    kubectl --context {{ item.context }} get crd -o name | grep -c snapshot.storage.k8s.io
+  args:
+    executable: /bin/bash
+  register: snap_crd_probe
+  changed_when: false
+  failed_when: false # grep exits 1 when the count is zero
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Apply VolumeSnapshot CRDs
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
+    {% for url in csi_snapshot_crd_urls %} -f {{ url }}{% endfor %}
+  changed_when: "item.1.stdout | trim | int < csi_snapshot_crd_urls | length"
+  loop: "{{ all_clusters | zip(snap_crd_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Probe for the VolumeSnapshot controller
+  ansible.builtin.command: >-
+    kubectl --context {{ item.context }} -n kube-system get deploy snapshot-controller -o name
+  register: snap_ctrl_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ all_clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Deploy the VolumeSnapshot controller
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.0.context }} --server-side --force-conflicts
+    -f {{ csi_snapshot_controller_url }}
+  changed_when: "item.1.rc != 0"
+  loop: "{{ all_clusters | zip(snap_ctrl_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"

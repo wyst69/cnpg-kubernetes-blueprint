@@ -1,0 +1,26 @@
+---
+# =============================================================================
+# monitoring
+# Variants (components.monitoring.stack):
+#   crds_only        Prometheus Operator CRDs on the workload clusters, nothing
+#                    else. Enough to apply PodMonitors and bring your own
+#                    Prometheus later.
+#   kube-prometheus  kube-prometheus-stack on the HUB (Prometheus + Grafana +
+#                    Alertmanager), and — with workload_agents — the operator in
+#                    PrometheusAgent mode on each workload cluster, remote-
+#                    writing to the hub. PodMonitors stay cluster-local; the
+#                    data ends up central.
+#   otel-signoz      SigNoz on the hub, OpenTelemetry collector DaemonSets on
+#                    the workload clusters shipping OTLP to it.
+# =============================================================================
+
+- name: Install the Prometheus Operator CRDs
+  ansible.builtin.include_tasks: crds.yml
+
+- name: Install kube-prometheus-stack
+  ansible.builtin.include_tasks: kube_prometheus.yml
+  when: components.monitoring.stack == 'kube-prometheus'
+
+- name: Install SigNoz and the OpenTelemetry collectors
+  ansible.builtin.include_tasks: otel_signoz.yml
+  when: components.monitoring.stack == 'otel-signoz'
