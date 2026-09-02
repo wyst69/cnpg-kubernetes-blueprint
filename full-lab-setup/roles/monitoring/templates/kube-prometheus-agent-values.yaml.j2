@@ -58,6 +58,18 @@ prometheus:
       # series came from once multiple clusters remote_write to the same hub.
       k8s_cluster: {{ cluster.name }}
 
+      # ALSO stamp the plain `cluster` label, on purpose, despite the note
+      # above: kube-prometheus-stack's own bundled dashboards (cluster-total,
+      # k8s-resources-cluster, nodes, multicluster) all key their $cluster
+      # template variable off this exact name via label_values(...). None of
+      # them touch CNPG's exporter, and none of kubelet/cadvisor,
+      # kube-state-metrics or node-exporter emit a `cluster` label of their
+      # own — so the collision that forced k8s_cluster above doesn't apply
+      # here. Without this, those stock dashboards silently blend hub/
+      # cluster-a/cluster-b into one indistinguishable view (confirmed live,
+      # not assumed).
+      cluster: {{ cluster.name }}
+
     remoteWrite:
       - url: "http://{{ hub_service_ips.prometheus }}:9090/api/v1/write"
 
