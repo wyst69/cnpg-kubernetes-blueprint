@@ -1,0 +1,709 @@
+# NOT applied by any ansible task yet — this repo creates no CNPG Cluster
+# resources (see the main memory note), so there is nowhere for ansible to
+# apply it against. Reference file for whichever Cluster(s) end up
+# exercising per-object metrics. Must be created in the same namespace as
+# the target Cluster, and added to its EXISTING customQueriesConfigMap list
+# (dropping the cnpg-default-monitoring entry below loses the built-in
+# queries, not just this one):
+#
+#   spec:
+#     monitoring:
+#       customQueriesConfigMap:
+#         - name: cnpg-default-monitoring
+#           key: queries
+#         - name: cnpg-object-monitoring
+#           key: custom-queries
+#
+# Feeds the "CloudNativePG Object Stats" and "CloudNativePG Query Stats"
+# dashboards (../dashboards/cloudnativepg-object-stats.json,
+# ../dashboards/cloudnativepg-query-stats.json).
+#
+# pg_stat_statements assumed installed in the "postgres" database (instance
+# level) and in the default "public" schema -- adjust target_databases and
+# the schema-qualification of `pg_stat_statements` below if that's not the
+# case. Everything else is pg_catalog-qualified per CNPG's own guidance
+# (custom queries run with search_path pinned to pg_catalog, public,
+# pg_temp -- public is covered, other schemas are not).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cnpg-object-monitoring
+  labels:
+    cnpg.io/reload: ""
+data:
+  custom-queries: |
+    pg_table_size:
+      query: |
+        SELECT
+          pg_catalog.current_database() AS datname,
+          s.schemaname,
+          s.relname,
+          pg_catalog.pg_total_relation_size(s.relid) AS total_bytes,
+          pg_catalog.pg_relation_size(s.relid) AS table_bytes,
+          pg_catalog.pg_total_relation_size(s.relid) - pg_catalog.pg_relation_size(s.relid) AS index_toast_bytes
+        FROM pg_catalog.pg_stat_user_tables s
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - schemaname:
+            usage: "LABEL"
+            description: "Schema containing the table"
+        - relname:
+            usage: "LABEL"
+            description: "Name of the table"
+        - total_bytes:
+            usage: "GAUGE"
+            description: "Total on-disk size of the table, including indexes and TOAST"
+        - table_bytes:
+            usage: "GAUGE"
+            description: "On-disk size of the table heap alone"
+        - index_toast_bytes:
+            usage: "GAUGE"
+            description: "On-disk size of the table's indexes and TOAST data"
+      target_databases:
+        - '*'
+
+    pg_stat_user_tables_vacuum:
+      query: |
+        SELECT
+          pg_catalog.current_database() AS datname,
+          s.schemaname,
+          s.relname,
+          s.n_dead_tup,
+          s.n_live_tup,
+          COALESCE(
+            (SELECT o.option_value::float8
+             FROM pg_catalog.pg_options_to_table(c.reloptions) o
+             WHERE o.option_name = 'autovacuum_vacuum_scale_factor'),
+            pg_catalog.current_setting('autovacuum_vacuum_scale_factor')::float8
+          ) AS vacuum_scale_factor
+        FROM pg_catalog.pg_stat_user_tables s
+        JOIN pg_catalog.pg_class c ON c.oid = s.relid
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - schemaname:
+            usage: "LABEL"
+            description: "Schema containing the table"
+        - relname:
+            usage: "LABEL"
+            description: "Name of the table"
+        - n_dead_tup:
+            usage: "GAUGE"
+            description: "Estimated number of dead tuples, per pg_stat_user_tables"
+        - n_live_tup:
+            usage: "GAUGE"
+            description: "Estimated number of live tuples, per pg_stat_user_tables"
+        - vacuum_scale_factor:
+            usage: "GAUGE"
+            description: "Effective autovacuum_vacuum_scale_factor for this table, resolving a per-table storage-parameter override before falling back to the GUC default"
+      target_databases:
+        - '*'
+
+    pg_stat_user_indexes_unused:
+      query: |
+        SELECT
+          pg_catalog.current_database() AS datname,
+          s.schemaname,
+          s.relname AS tablename,
+          s.indexrelname,
+          s.idx_scan,
+          pg_catalog.pg_relation_size(s.indexrelid) AS index_bytes,
+          i.indisunique::int AS indisunique
+        FROM pg_catalog.pg_stat_user_indexes s
+        JOIN pg_catalog.pg_index i ON i.indexrelid = s.indexrelid
+        WHERE NOT i.indisprimary
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Name of the database"
+        - schemaname:
+            usage: "LABEL"
+            description: "Schema containing the index"
+        - tablename:
+            usage: "LABEL"
+            description: "Table the index belongs to"
+        - indexrelname:
+            usage: "LABEL"
+            description: "Name of the index"
+        - idx_scan:
+            usage: "GAUGE"
+            description: "Number of index scans initiated on this index since stats were last reset"
+        - index_bytes:
+            usage: "GAUGE"
+            description: "On-disk size of the index"
+        - indisunique:
+            usage: "GAUGE"
+            description: "1 if the index enforces a UNIQUE constraint (idx_scan=0 does not mean unused for these), 0 otherwise"
+      target_databases:
+        - '*'
+
+    pg_stat_statements_top_time:
+      query: |
+        SELECT
+          pss.queryid,
+          d.datname,
+          r.rolname AS usename,
+          pg_catalog.left(pss.query, 100) AS query,
+          pss.calls,
+          pss.total_exec_time,
+          pss.mean_exec_time,
+          pss.stddev_exec_time,
+          pss.rows,
+          pss.shared_blks_hit,
+          pss.shared_blks_read,
+          pss.shared_blks_dirtied,
+          pss.shared_blks_written,
+          pss.temp_blks_read,
+          pss.temp_blks_written,
+          pss.wal_bytes,
+          100.0 * pss.shared_blks_hit / NULLIF(pss.shared_blks_hit + pss.shared_blks_read, 0) AS hit_ratio
+        FROM pg_stat_statements pss
+        JOIN pg_catalog.pg_database d ON d.oid = pss.dbid
+        JOIN pg_catalog.pg_roles r ON r.oid = pss.userid
+        WHERE r.rolname <> 'cnpg_metrics_exporter'
+        ORDER BY pss.total_exec_time DESC
+        LIMIT 20
+      metrics:
+        - queryid:
+            usage: "LABEL"
+            description: "Stable identifier for the normalized statement -- the real join/uniqueness key, since truncated query text can collide"
+        - datname:
+            usage: "LABEL"
+            description: "Database the statement ran against"
+        - usename:
+            usage: "LABEL"
+            description: "Role that ran the statement"
+        - query:
+            usage: "LABEL"
+            description: "Normalized statement text, truncated to 100 characters -- use pgstat.sql for the full text"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed since stats were last reset"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total time spent executing this statement, in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time per call, in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time -- flags inconsistent, not just slow, statements"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Shared buffer blocks hit"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Shared buffer blocks read from disk"
+        - shared_blks_dirtied:
+            usage: "COUNTER"
+            description: "Shared buffer blocks dirtied"
+        - shared_blks_written:
+            usage: "COUNTER"
+            description: "Shared buffer blocks written out"
+        - temp_blks_read:
+            usage: "COUNTER"
+            description: "Temp file blocks read -- non-zero means this statement is spilling to disk"
+        - temp_blks_written:
+            usage: "COUNTER"
+            description: "Temp file blocks written -- non-zero means this statement is spilling to disk"
+        - wal_bytes:
+            usage: "COUNTER"
+            description: "Total WAL generated by this statement"
+        - hit_ratio:
+            usage: "GAUGE"
+            description: "100 * shared_blks_hit / (shared_blks_hit + shared_blks_read); null when the statement has no shared block activity at all"
+      target_databases:
+        - 'postgres'
+
+    pg_stat_statements_top_calls:
+      query: |
+        SELECT
+          pss.queryid,
+          d.datname,
+          r.rolname AS usename,
+          pg_catalog.left(pss.query, 100) AS query,
+          pss.calls,
+          pss.total_exec_time,
+          pss.mean_exec_time,
+          pss.stddev_exec_time,
+          pss.rows,
+          pss.shared_blks_hit,
+          pss.shared_blks_read,
+          pss.shared_blks_dirtied,
+          pss.shared_blks_written,
+          pss.temp_blks_read,
+          pss.temp_blks_written,
+          pss.wal_bytes,
+          100.0 * pss.shared_blks_hit / NULLIF(pss.shared_blks_hit + pss.shared_blks_read, 0) AS hit_ratio
+        FROM pg_stat_statements pss
+        JOIN pg_catalog.pg_database d ON d.oid = pss.dbid
+        JOIN pg_catalog.pg_roles r ON r.oid = pss.userid
+        WHERE r.rolname <> 'cnpg_metrics_exporter'
+        ORDER BY pss.calls DESC
+        LIMIT 20
+      metrics:
+        - queryid:
+            usage: "LABEL"
+            description: "Stable identifier for the normalized statement -- the real join/uniqueness key, since truncated query text can collide"
+        - datname:
+            usage: "LABEL"
+            description: "Database the statement ran against"
+        - usename:
+            usage: "LABEL"
+            description: "Role that ran the statement"
+        - query:
+            usage: "LABEL"
+            description: "Normalized statement text, truncated to 100 characters -- use pgstat.sql for the full text"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed since stats were last reset"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total time spent executing this statement, in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time per call, in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time -- flags inconsistent, not just slow, statements"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Shared buffer blocks hit"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Shared buffer blocks read from disk"
+        - shared_blks_dirtied:
+            usage: "COUNTER"
+            description: "Shared buffer blocks dirtied"
+        - shared_blks_written:
+            usage: "COUNTER"
+            description: "Shared buffer blocks written out"
+        - temp_blks_read:
+            usage: "COUNTER"
+            description: "Temp file blocks read -- non-zero means this statement is spilling to disk"
+        - temp_blks_written:
+            usage: "COUNTER"
+            description: "Temp file blocks written -- non-zero means this statement is spilling to disk"
+        - wal_bytes:
+            usage: "COUNTER"
+            description: "Total WAL generated by this statement"
+        - hit_ratio:
+            usage: "GAUGE"
+            description: "100 * shared_blks_hit / (shared_blks_hit + shared_blks_read); null when the statement has no shared block activity at all"
+      target_databases:
+        - 'postgres'
+
+    pg_stat_statements_top_avg:
+      query: |
+        SELECT
+          pss.queryid,
+          d.datname,
+          r.rolname AS usename,
+          pg_catalog.left(pss.query, 100) AS query,
+          pss.calls,
+          pss.total_exec_time,
+          pss.mean_exec_time,
+          pss.stddev_exec_time,
+          pss.rows,
+          pss.shared_blks_hit,
+          pss.shared_blks_read,
+          pss.shared_blks_dirtied,
+          pss.shared_blks_written,
+          pss.temp_blks_read,
+          pss.temp_blks_written,
+          pss.wal_bytes,
+          100.0 * pss.shared_blks_hit / NULLIF(pss.shared_blks_hit + pss.shared_blks_read, 0) AS hit_ratio
+        FROM pg_stat_statements pss
+        JOIN pg_catalog.pg_database d ON d.oid = pss.dbid
+        JOIN pg_catalog.pg_roles r ON r.oid = pss.userid
+        WHERE r.rolname <> 'cnpg_metrics_exporter'
+        ORDER BY pss.mean_exec_time DESC
+        LIMIT 20
+      metrics:
+        - queryid:
+            usage: "LABEL"
+            description: "Stable identifier for the normalized statement -- the real join/uniqueness key, since truncated query text can collide"
+        - datname:
+            usage: "LABEL"
+            description: "Database the statement ran against"
+        - usename:
+            usage: "LABEL"
+            description: "Role that ran the statement"
+        - query:
+            usage: "LABEL"
+            description: "Normalized statement text, truncated to 100 characters -- use pgstat.sql for the full text"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed since stats were last reset"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total time spent executing this statement, in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time per call, in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time -- flags inconsistent, not just slow, statements"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Shared buffer blocks hit"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Shared buffer blocks read from disk"
+        - shared_blks_dirtied:
+            usage: "COUNTER"
+            description: "Shared buffer blocks dirtied"
+        - shared_blks_written:
+            usage: "COUNTER"
+            description: "Shared buffer blocks written out"
+        - temp_blks_read:
+            usage: "COUNTER"
+            description: "Temp file blocks read -- non-zero means this statement is spilling to disk"
+        - temp_blks_written:
+            usage: "COUNTER"
+            description: "Temp file blocks written -- non-zero means this statement is spilling to disk"
+        - wal_bytes:
+            usage: "COUNTER"
+            description: "Total WAL generated by this statement"
+        - hit_ratio:
+            usage: "GAUGE"
+            description: "100 * shared_blks_hit / (shared_blks_hit + shared_blks_read); null when the statement has no shared block activity at all"
+      target_databases:
+        - 'postgres'
+
+    pg_stat_statements_top_reads:
+      query: |
+        SELECT
+          pss.queryid,
+          d.datname,
+          r.rolname AS usename,
+          pg_catalog.left(pss.query, 100) AS query,
+          pss.calls,
+          pss.total_exec_time,
+          pss.mean_exec_time,
+          pss.stddev_exec_time,
+          pss.rows,
+          pss.shared_blks_hit,
+          pss.shared_blks_read,
+          pss.shared_blks_dirtied,
+          pss.shared_blks_written,
+          pss.temp_blks_read,
+          pss.temp_blks_written,
+          pss.wal_bytes,
+          100.0 * pss.shared_blks_hit / NULLIF(pss.shared_blks_hit + pss.shared_blks_read, 0) AS hit_ratio
+        FROM pg_stat_statements pss
+        JOIN pg_catalog.pg_database d ON d.oid = pss.dbid
+        JOIN pg_catalog.pg_roles r ON r.oid = pss.userid
+        WHERE r.rolname <> 'cnpg_metrics_exporter'
+        ORDER BY pss.shared_blks_read DESC
+        LIMIT 20
+      metrics:
+        - queryid:
+            usage: "LABEL"
+            description: "Stable identifier for the normalized statement -- the real join/uniqueness key, since truncated query text can collide"
+        - datname:
+            usage: "LABEL"
+            description: "Database the statement ran against"
+        - usename:
+            usage: "LABEL"
+            description: "Role that ran the statement"
+        - query:
+            usage: "LABEL"
+            description: "Normalized statement text, truncated to 100 characters -- use pgstat.sql for the full text"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed since stats were last reset"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total time spent executing this statement, in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time per call, in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time -- flags inconsistent, not just slow, statements"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Shared buffer blocks hit"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Shared buffer blocks read from disk"
+        - shared_blks_dirtied:
+            usage: "COUNTER"
+            description: "Shared buffer blocks dirtied"
+        - shared_blks_written:
+            usage: "COUNTER"
+            description: "Shared buffer blocks written out"
+        - temp_blks_read:
+            usage: "COUNTER"
+            description: "Temp file blocks read -- non-zero means this statement is spilling to disk"
+        - temp_blks_written:
+            usage: "COUNTER"
+            description: "Temp file blocks written -- non-zero means this statement is spilling to disk"
+        - wal_bytes:
+            usage: "COUNTER"
+            description: "Total WAL generated by this statement"
+        - hit_ratio:
+            usage: "GAUGE"
+            description: "100 * shared_blks_hit / (shared_blks_hit + shared_blks_read); null when the statement has no shared block activity at all"
+      target_databases:
+        - 'postgres'
+
+    pg_stat_statements_worst_hitratio:
+      query: |
+        SELECT
+          pss.queryid,
+          d.datname,
+          r.rolname AS usename,
+          pg_catalog.left(pss.query, 100) AS query,
+          pss.calls,
+          pss.total_exec_time,
+          pss.mean_exec_time,
+          pss.stddev_exec_time,
+          pss.rows,
+          pss.shared_blks_hit,
+          pss.shared_blks_read,
+          pss.shared_blks_dirtied,
+          pss.shared_blks_written,
+          pss.temp_blks_read,
+          pss.temp_blks_written,
+          pss.wal_bytes,
+          100.0 * pss.shared_blks_hit / NULLIF(pss.shared_blks_hit + pss.shared_blks_read, 0) AS hit_ratio
+        FROM pg_stat_statements pss
+        JOIN pg_catalog.pg_database d ON d.oid = pss.dbid
+        JOIN pg_catalog.pg_roles r ON r.oid = pss.userid
+        WHERE r.rolname <> 'cnpg_metrics_exporter'
+          AND pss.shared_blks_hit + pss.shared_blks_read > 0
+        ORDER BY hit_ratio ASC
+        LIMIT 20
+      metrics:
+        - queryid:
+            usage: "LABEL"
+            description: "Stable identifier for the normalized statement -- the real join/uniqueness key, since truncated query text can collide"
+        - datname:
+            usage: "LABEL"
+            description: "Database the statement ran against"
+        - usename:
+            usage: "LABEL"
+            description: "Role that ran the statement"
+        - query:
+            usage: "LABEL"
+            description: "Normalized statement text, truncated to 100 characters -- use pgstat.sql for the full text"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed since stats were last reset"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total time spent executing this statement, in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time per call, in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time -- flags inconsistent, not just slow, statements"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Shared buffer blocks hit"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Shared buffer blocks read from disk"
+        - shared_blks_dirtied:
+            usage: "COUNTER"
+            description: "Shared buffer blocks dirtied"
+        - shared_blks_written:
+            usage: "COUNTER"
+            description: "Shared buffer blocks written out"
+        - temp_blks_read:
+            usage: "COUNTER"
+            description: "Temp file blocks read -- non-zero means this statement is spilling to disk"
+        - temp_blks_written:
+            usage: "COUNTER"
+            description: "Temp file blocks written -- non-zero means this statement is spilling to disk"
+        - wal_bytes:
+            usage: "COUNTER"
+            description: "Total WAL generated by this statement"
+        - hit_ratio:
+            usage: "GAUGE"
+            description: "100 * shared_blks_hit / (shared_blks_hit + shared_blks_read); null when the statement has no shared block activity at all"
+      target_databases:
+        - 'postgres'
+
+    pg_stat_statements_top_temp:
+      query: |
+        SELECT
+          pss.queryid,
+          d.datname,
+          r.rolname AS usename,
+          pg_catalog.left(pss.query, 100) AS query,
+          pss.calls,
+          pss.total_exec_time,
+          pss.mean_exec_time,
+          pss.stddev_exec_time,
+          pss.rows,
+          pss.shared_blks_hit,
+          pss.shared_blks_read,
+          pss.shared_blks_dirtied,
+          pss.shared_blks_written,
+          pss.temp_blks_read,
+          pss.temp_blks_written,
+          pss.wal_bytes,
+          100.0 * pss.shared_blks_hit / NULLIF(pss.shared_blks_hit + pss.shared_blks_read, 0) AS hit_ratio
+        FROM pg_stat_statements pss
+        JOIN pg_catalog.pg_database d ON d.oid = pss.dbid
+        JOIN pg_catalog.pg_roles r ON r.oid = pss.userid
+        WHERE r.rolname <> 'cnpg_metrics_exporter'
+        ORDER BY pss.temp_blks_read + pss.temp_blks_written DESC
+        LIMIT 20
+      metrics:
+        - queryid:
+            usage: "LABEL"
+            description: "Stable identifier for the normalized statement -- the real join/uniqueness key, since truncated query text can collide"
+        - datname:
+            usage: "LABEL"
+            description: "Database the statement ran against"
+        - usename:
+            usage: "LABEL"
+            description: "Role that ran the statement"
+        - query:
+            usage: "LABEL"
+            description: "Normalized statement text, truncated to 100 characters -- use pgstat.sql for the full text"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed since stats were last reset"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total time spent executing this statement, in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time per call, in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time -- flags inconsistent, not just slow, statements"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Shared buffer blocks hit"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Shared buffer blocks read from disk"
+        - shared_blks_dirtied:
+            usage: "COUNTER"
+            description: "Shared buffer blocks dirtied"
+        - shared_blks_written:
+            usage: "COUNTER"
+            description: "Shared buffer blocks written out"
+        - temp_blks_read:
+            usage: "COUNTER"
+            description: "Temp file blocks read -- non-zero means this statement is spilling to disk"
+        - temp_blks_written:
+            usage: "COUNTER"
+            description: "Temp file blocks written -- non-zero means this statement is spilling to disk"
+        - wal_bytes:
+            usage: "COUNTER"
+            description: "Total WAL generated by this statement"
+        - hit_ratio:
+            usage: "GAUGE"
+            description: "100 * shared_blks_hit / (shared_blks_hit + shared_blks_read); null when the statement has no shared block activity at all"
+      target_databases:
+        - 'postgres'
+
+    pg_stat_statements_top_wal:
+      query: |
+        SELECT
+          pss.queryid,
+          d.datname,
+          r.rolname AS usename,
+          pg_catalog.left(pss.query, 100) AS query,
+          pss.calls,
+          pss.total_exec_time,
+          pss.mean_exec_time,
+          pss.stddev_exec_time,
+          pss.rows,
+          pss.shared_blks_hit,
+          pss.shared_blks_read,
+          pss.shared_blks_dirtied,
+          pss.shared_blks_written,
+          pss.temp_blks_read,
+          pss.temp_blks_written,
+          pss.wal_bytes,
+          100.0 * pss.shared_blks_hit / NULLIF(pss.shared_blks_hit + pss.shared_blks_read, 0) AS hit_ratio
+        FROM pg_stat_statements pss
+        JOIN pg_catalog.pg_database d ON d.oid = pss.dbid
+        JOIN pg_catalog.pg_roles r ON r.oid = pss.userid
+        WHERE r.rolname <> 'cnpg_metrics_exporter'
+        ORDER BY pss.wal_bytes DESC NULLS LAST
+        LIMIT 20
+      metrics:
+        - queryid:
+            usage: "LABEL"
+            description: "Stable identifier for the normalized statement -- the real join/uniqueness key, since truncated query text can collide"
+        - datname:
+            usage: "LABEL"
+            description: "Database the statement ran against"
+        - usename:
+            usage: "LABEL"
+            description: "Role that ran the statement"
+        - query:
+            usage: "LABEL"
+            description: "Normalized statement text, truncated to 100 characters -- use pgstat.sql for the full text"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed since stats were last reset"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total time spent executing this statement, in milliseconds"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time per call, in milliseconds"
+        - stddev_exec_time:
+            usage: "GAUGE"
+            description: "Standard deviation of execution time -- flags inconsistent, not just slow, statements"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+        - shared_blks_hit:
+            usage: "COUNTER"
+            description: "Shared buffer blocks hit"
+        - shared_blks_read:
+            usage: "COUNTER"
+            description: "Shared buffer blocks read from disk"
+        - shared_blks_dirtied:
+            usage: "COUNTER"
+            description: "Shared buffer blocks dirtied"
+        - shared_blks_written:
+            usage: "COUNTER"
+            description: "Shared buffer blocks written out"
+        - temp_blks_read:
+            usage: "COUNTER"
+            description: "Temp file blocks read -- non-zero means this statement is spilling to disk"
+        - temp_blks_written:
+            usage: "COUNTER"
+            description: "Temp file blocks written -- non-zero means this statement is spilling to disk"
+        - wal_bytes:
+            usage: "COUNTER"
+            description: "Total WAL generated by this statement"
+        - hit_ratio:
+            usage: "GAUGE"
+            description: "100 * shared_blks_hit / (shared_blks_hit + shared_blks_read); null when the statement has no shared block activity at all"
+      target_databases:
+        - 'postgres'

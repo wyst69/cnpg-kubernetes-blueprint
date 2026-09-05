@@ -19,6 +19,8 @@
   loop:
     - cloudnativepg
     - cloudnativepg-fleet-overview
+    - cloudnativepg-object-stats
+    - cloudnativepg-query-stats
   loop_control:
     label: "{{ item }}"
 
@@ -32,6 +34,8 @@
   loop:
     - cloudnativepg
     - cloudnativepg-fleet-overview
+    - cloudnativepg-object-stats
+    - cloudnativepg-query-stats
   loop_control:
     label: "{{ item }}"
 
@@ -47,6 +51,6 @@
   args:
     executable: /bin/bash
   changed_when: "item.1.rc != 0"
-  loop: "{{ ['cloudnativepg', 'cloudnativepg-fleet-overview'] | zip(dashboard_probe.results) | list }}"
+  loop: "{{ ['cloudnativepg', 'cloudnativepg-fleet-overview', 'cloudnativepg-object-stats', 'cloudnativepg-query-stats'] | zip(dashboard_probe.results) | list }}"
   loop_control:
     label: "{{ item.0 }}"

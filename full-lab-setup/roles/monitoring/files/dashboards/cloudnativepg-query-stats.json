@@ -1,0 +1,2692 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [],
+          "type": "dashboard"
+        },
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Statements consuming the most total execution time (excludes cnpg_metrics_exporter's own monitoring queries)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "StdDev Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hit Ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL Bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Total Time (ms)"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_calls{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_total_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_mean_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_stddev_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_rows{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_hit_ratio{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_shared_blks_hit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_shared_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_shared_blks_dirtied{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_shared_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_temp_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "K",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_temp_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "L",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_time_wal_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "M",
+          "useBackend": false
+        }
+      ],
+      "title": "Top by Total Time",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Value #B",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "queryid": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "usename": 1,
+              "query": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8,
+              "Value #G": 9,
+              "Value #H": 10,
+              "Value #I": 11,
+              "Value #J": 12,
+              "Value #K": 13,
+              "Value #L": 14,
+              "Value #M": 15
+            },
+            "renameByName": {
+              "datname": "Database",
+              "usename": "User",
+              "query": "Query",
+              "Value #A": "Calls",
+              "Value #B": "Total Time (ms)",
+              "Value #C": "Mean Time (ms)",
+              "Value #D": "StdDev Time (ms)",
+              "Value #E": "Rows",
+              "Value #F": "Hit Ratio",
+              "Value #G": "Shared Hit",
+              "Value #H": "Shared Read",
+              "Value #I": "Shared Dirtied",
+              "Value #J": "Shared Written",
+              "Value #K": "Temp Read",
+              "Value #L": "Temp Written",
+              "Value #M": "WAL Bytes"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Statements executed most often",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "StdDev Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hit Ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL Bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Calls"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_calls{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_total_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_mean_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_stddev_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_rows{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_hit_ratio{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_shared_blks_hit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_shared_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_shared_blks_dirtied{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_shared_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_temp_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "K",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_temp_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "L",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_calls_wal_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "M",
+          "useBackend": false
+        }
+      ],
+      "title": "Top by Call Frequency",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Value #A",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "queryid": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "usename": 1,
+              "query": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8,
+              "Value #G": 9,
+              "Value #H": 10,
+              "Value #I": 11,
+              "Value #J": 12,
+              "Value #K": 13,
+              "Value #L": 14,
+              "Value #M": 15
+            },
+            "renameByName": {
+              "datname": "Database",
+              "usename": "User",
+              "query": "Query",
+              "Value #A": "Calls",
+              "Value #B": "Total Time (ms)",
+              "Value #C": "Mean Time (ms)",
+              "Value #D": "StdDev Time (ms)",
+              "Value #E": "Rows",
+              "Value #F": "Hit Ratio",
+              "Value #G": "Shared Hit",
+              "Value #H": "Shared Read",
+              "Value #I": "Shared Dirtied",
+              "Value #J": "Shared Written",
+              "Value #K": "Temp Read",
+              "Value #L": "Temp Written",
+              "Value #M": "WAL Bytes"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Statements with the highest mean execution time per call",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "StdDev Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hit Ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL Bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Mean Time (ms)"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_calls{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_total_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_mean_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_stddev_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_rows{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_hit_ratio{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_shared_blks_hit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_shared_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_shared_blks_dirtied{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_shared_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_temp_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "K",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_temp_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "L",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_avg_wal_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "M",
+          "useBackend": false
+        }
+      ],
+      "title": "Slowest per Call",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Value #C",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "queryid": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "usename": 1,
+              "query": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8,
+              "Value #G": 9,
+              "Value #H": 10,
+              "Value #I": 11,
+              "Value #J": 12,
+              "Value #K": 13,
+              "Value #L": 14,
+              "Value #M": 15
+            },
+            "renameByName": {
+              "datname": "Database",
+              "usename": "User",
+              "query": "Query",
+              "Value #A": "Calls",
+              "Value #B": "Total Time (ms)",
+              "Value #C": "Mean Time (ms)",
+              "Value #D": "StdDev Time (ms)",
+              "Value #E": "Rows",
+              "Value #F": "Hit Ratio",
+              "Value #G": "Shared Hit",
+              "Value #H": "Shared Read",
+              "Value #I": "Shared Dirtied",
+              "Value #J": "Shared Written",
+              "Value #K": "Temp Read",
+              "Value #L": "Temp Written",
+              "Value #M": "WAL Bytes"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Statements reading the most shared buffer blocks from disk",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "StdDev Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hit Ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL Bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Shared Read"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_calls{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_total_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_mean_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_stddev_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_rows{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_hit_ratio{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_shared_blks_hit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_shared_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_shared_blks_dirtied{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_shared_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_temp_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "K",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_temp_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "L",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_reads_wal_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "M",
+          "useBackend": false
+        }
+      ],
+      "title": "Heaviest Physical Reads",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Value #H",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "queryid": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "usename": 1,
+              "query": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8,
+              "Value #G": 9,
+              "Value #H": 10,
+              "Value #I": 11,
+              "Value #J": 12,
+              "Value #K": 13,
+              "Value #L": 14,
+              "Value #M": 15
+            },
+            "renameByName": {
+              "datname": "Database",
+              "usename": "User",
+              "query": "Query",
+              "Value #A": "Calls",
+              "Value #B": "Total Time (ms)",
+              "Value #C": "Mean Time (ms)",
+              "Value #D": "StdDev Time (ms)",
+              "Value #E": "Rows",
+              "Value #F": "Hit Ratio",
+              "Value #G": "Shared Hit",
+              "Value #H": "Shared Read",
+              "Value #I": "Shared Dirtied",
+              "Value #J": "Shared Written",
+              "Value #K": "Temp Read",
+              "Value #L": "Temp Written",
+              "Value #M": "WAL Bytes"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Statements with the lowest cache hit ratio (excludes statements with zero shared-block activity)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "StdDev Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hit Ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL Bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 32
+      },
+      "id": 5,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Hit Ratio"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_calls{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_total_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_mean_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_stddev_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_rows{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_hit_ratio{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_shared_blks_hit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_shared_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_shared_blks_dirtied{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_shared_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_temp_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "K",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_temp_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "L",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_worst_hitratio_wal_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "M",
+          "useBackend": false
+        }
+      ],
+      "title": "Worst Buffer Hit Ratio",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Value #F",
+                "desc": false
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "queryid": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "usename": 1,
+              "query": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8,
+              "Value #G": 9,
+              "Value #H": 10,
+              "Value #I": 11,
+              "Value #J": 12,
+              "Value #K": 13,
+              "Value #L": 14,
+              "Value #M": 15
+            },
+            "renameByName": {
+              "datname": "Database",
+              "usename": "User",
+              "query": "Query",
+              "Value #A": "Calls",
+              "Value #B": "Total Time (ms)",
+              "Value #C": "Mean Time (ms)",
+              "Value #D": "StdDev Time (ms)",
+              "Value #E": "Rows",
+              "Value #F": "Hit Ratio",
+              "Value #G": "Shared Hit",
+              "Value #H": "Shared Read",
+              "Value #I": "Shared Dirtied",
+              "Value #J": "Shared Written",
+              "Value #K": "Temp Read",
+              "Value #L": "Temp Written",
+              "Value #M": "WAL Bytes"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Statements spilling the most work to temp files -- sort/hash operations exceeding work_mem. Ranked by temp_blks_read + temp_blks_written combined, matching the underlying query's ORDER BY.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "StdDev Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hit Ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL Bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 6,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Temp Read"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_calls{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_total_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_mean_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_stddev_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_rows{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_hit_ratio{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_shared_blks_hit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_shared_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_shared_blks_dirtied{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_shared_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_temp_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "K",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_temp_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "L",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_temp_wal_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "M",
+          "useBackend": false
+        }
+      ],
+      "title": "Heaviest Disk Spill (Temp Blocks)",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #K"
+                }
+              },
+              "operator": "+",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #L"
+                }
+              }
+            },
+            "alias": "Total Temp Blocks",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Total Temp Blocks",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "queryid": true,
+              "Total Temp Blocks": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "usename": 1,
+              "query": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8,
+              "Value #G": 9,
+              "Value #H": 10,
+              "Value #I": 11,
+              "Value #J": 12,
+              "Value #K": 13,
+              "Value #L": 14,
+              "Value #M": 15
+            },
+            "renameByName": {
+              "datname": "Database",
+              "usename": "User",
+              "query": "Query",
+              "Value #A": "Calls",
+              "Value #B": "Total Time (ms)",
+              "Value #C": "Mean Time (ms)",
+              "Value #D": "StdDev Time (ms)",
+              "Value #E": "Rows",
+              "Value #F": "Hit Ratio",
+              "Value #G": "Shared Hit",
+              "Value #H": "Shared Read",
+              "Value #I": "Shared Dirtied",
+              "Value #J": "Shared Written",
+              "Value #K": "Temp Read",
+              "Value #L": "Temp Written",
+              "Value #M": "WAL Bytes"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Statements generating the most WAL -- relevant for replication/backup load",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": true,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Mean Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "StdDev Time (ms)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Hit Ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "WAL Bytes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "id": 7,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "WAL Bytes"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_calls{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_total_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_mean_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_stddev_exec_time{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_rows{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_hit_ratio{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_shared_blks_hit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "G",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_shared_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "H",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_shared_blks_dirtied{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "I",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_shared_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "J",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_temp_blks_read{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "K",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_temp_blks_written{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "L",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (queryid, datname, usename, query) (cnpg_pg_stat_statements_top_wal_wal_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "M",
+          "useBackend": false
+        }
+      ],
+      "title": "Heaviest WAL Generation",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Value #M",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "queryid": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "usename": 1,
+              "query": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8,
+              "Value #G": 9,
+              "Value #H": 10,
+              "Value #I": 11,
+              "Value #J": 12,
+              "Value #K": 13,
+              "Value #L": 14,
+              "Value #M": 15
+            },
+            "renameByName": {
+              "datname": "Database",
+              "usename": "User",
+              "query": "Query",
+              "Value #A": "Calls",
+              "Value #B": "Total Time (ms)",
+              "Value #C": "Mean Time (ms)",
+              "Value #D": "StdDev Time (ms)",
+              "Value #E": "Rows",
+              "Value #F": "Hit Ratio",
+              "Value #G": "Shared Hit",
+              "Value #H": "Shared Read",
+              "Value #I": "Shared Dirtied",
+              "Value #J": "Shared Written",
+              "Value #K": "Temp Read",
+              "Value #L": "Temp Written",
+              "Value #M": "WAL Bytes"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "cnpg"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "cnpg_collector_up",
+        "description": "K8s cluster the CNPG Cluster runs on",
+        "hide": 0,
+        "includeAll": false,
+        "label": "K8s Cluster",
+        "multi": false,
+        "name": "k8s_cluster",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "cnpg_collector_up",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/k8s_cluster=\"(?<text>[^\"]+)/g",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "cnpg_collector_up{k8s_cluster=~\"$k8s_cluster\"}",
+        "description": "Namespace where the database cluster is located",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Database Namespace",
+        "multi": false,
+        "name": "namespace",
+        "options": [],
+        "query": {
+          "query": "cnpg_collector_up{k8s_cluster=~\"$k8s_cluster\"}",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/namespace=\"(?<text>[^\"]+)/g",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "cnpg_collector_up{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\"}",
+        "description": "CNPG Cluster",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Cluster",
+        "multi": false,
+        "name": "cluster",
+        "options": [],
+        "query": {
+          "query": "cnpg_collector_up{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\"}",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/\\bcluster\\b=\"(?<text>[^\"]+)/g",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "CloudNativePG Query Stats",
+  "uid": "cloudnative-pg-query-stats",
+  "version": 1,
+  "weekStart": ""
+}

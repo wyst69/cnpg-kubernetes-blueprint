@@ -1,0 +1,784 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "datasource",
+          "uid": "grafana"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "target": {
+          "limit": 100,
+          "matchAny": false,
+          "tags": [],
+          "type": "dashboard"
+        },
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "The 20 largest user tables by total on-disk size (heap + indexes + TOAST)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": false,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Table Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Index + TOAST Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Total Size"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_table_size_total_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_table_size_table_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_table_size_index_toast_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        }
+      ],
+      "title": "Top 20 Tables by Size",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Value #A",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 20
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "schemaname": 1,
+              "relname": 2,
+              "Value #A": 3,
+              "Value #B": 4,
+              "Value #C": 5
+            },
+            "renameByName": {
+              "datname": "Database",
+              "schemaname": "Schema",
+              "relname": "Table",
+              "Value #A": "Total Size",
+              "Value #B": "Table Size",
+              "Value #C": "Index + TOAST Size"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Tables where dead_tuples / (dead_tuples + live_tuples) already exceeds the effective autovacuum_vacuum_scale_factor for that table (resolving a per-table storage-parameter override before falling back to the GUC default) -- i.e. autovacuum is behind, disabled, or blocked, not just \"has some dead rows\"",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": false,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Dead Ratio"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Scale Factor"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Dead Ratio"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_stat_user_tables_vacuum_n_dead_tup{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_stat_user_tables_vacuum_n_live_tup{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_stat_user_tables_vacuum_vacuum_scale_factor{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        }
+      ],
+      "title": "Tables Needing Vacuum (dead ratio over the autovacuum scale factor)",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #A"
+                }
+              },
+              "operator": "+",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #B"
+                }
+              }
+            },
+            "alias": "Total Tuples",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #A"
+                }
+              },
+              "operator": "/",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Total Tuples"
+                }
+              }
+            },
+            "alias": "Dead Ratio",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Dead Ratio"
+                }
+              },
+              "operator": "-",
+              "right": {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Value #C"
+                }
+              }
+            },
+            "alias": "Over Scale Factor By",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "fieldName": "Over Scale Factor By",
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 0
+                  }
+                }
+              }
+            ],
+            "type": "include",
+            "match": "all"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Total Tuples": true,
+              "Over Scale Factor By": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "schemaname": 1,
+              "relname": 2,
+              "Value #B": 3,
+              "Value #A": 4,
+              "Dead Ratio": 5,
+              "Value #C": 6
+            },
+            "renameByName": {
+              "datname": "Database",
+              "schemaname": "Schema",
+              "relname": "Table",
+              "Value #B": "Live Tuples",
+              "Value #A": "Dead Tuples",
+              "Value #C": "Scale Factor"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Non-PK indexes with zero recorded scans since the last stats reset and bigger than 1 MB. \"Enforces Unique\" indexes can show 0 scans and still not be dead weight -- constraint enforcement doesn't count as a scan -- so that column is surfaced rather than filtered out.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto",
+              "wrapText": false
+            },
+            "filterable": false,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Size"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Enforces Unique"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "text": "No",
+                        "index": 1
+                      },
+                      "1": {
+                        "text": "Yes",
+                        "index": 0
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 3,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Size"
+          }
+        ]
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, tablename, indexrelname) (cnpg_pg_stat_user_indexes_unused_idx_scan{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, tablename, indexrelname) (cnpg_pg_stat_user_indexes_unused_index_bytes{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "B",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, tablename, indexrelname) (cnpg_pg_stat_user_indexes_unused_indisunique{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "C",
+          "useBackend": false
+        }
+      ],
+      "title": "Unused Indexes (excluding primary keys, > 1 MB)",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "includeByName": {},
+            "indexByName": {
+              "datname": 0,
+              "schemaname": 1,
+              "tablename": 2,
+              "indexrelname": 3,
+              "Value #A": 4,
+              "Value #B": 5,
+              "Value #C": 6
+            },
+            "renameByName": {
+              "datname": "Database",
+              "schemaname": "Schema",
+              "tablename": "Table",
+              "indexrelname": "Index",
+              "Value #A": "Idx Scans",
+              "Value #B": "Size",
+              "Value #C": "Enforces Unique"
+            }
+          }
+        },
+        {
+          "id": "filterByValue",
+          "options": {
+            "filters": [
+              {
+                "fieldName": "Idx Scans",
+                "config": {
+                  "id": "equal",
+                  "options": {
+                    "value": 0
+                  }
+                }
+              },
+              {
+                "fieldName": "Size",
+                "config": {
+                  "id": "greater",
+                  "options": {
+                    "value": 1048576
+                  }
+                }
+              }
+            ],
+            "type": "include",
+            "match": "all"
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "cnpg"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "Prometheus",
+          "value": "prometheus"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Datasource",
+        "multi": false,
+        "name": "DS_PROMETHEUS",
+        "options": [],
+        "query": "prometheus",
+        "queryValue": "",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "type": "datasource"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${DS_PROMETHEUS}"
+        },
+        "definition": "cnpg_collector_up",
+        "description": "K8s cluster the CNPG Cluster runs on",
+        "hide": 0,
+        "includeAll": false,
+        "label": "K8s Cluster",
+        "multi": false,
+        "name": "k8s_cluster",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "cnpg_collector_up",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/k8s_cluster=\"(?<text>[^\"]+)/g",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "cnpg_collector_up{k8s_cluster=~\"$k8s_cluster\"}",
+        "description": "Namespace where the database cluster is located",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Database Namespace",
+        "multi": false,
+        "name": "namespace",
+        "options": [],
+        "query": {
+          "query": "cnpg_collector_up{k8s_cluster=~\"$k8s_cluster\"}",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/namespace=\"(?<text>[^\"]+)/g",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "cnpg_collector_up{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\"}",
+        "description": "CNPG Cluster",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Cluster",
+        "multi": false,
+        "name": "cluster",
+        "options": [],
+        "query": {
+          "query": "cnpg_collector_up{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\"}",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "/\\bcluster\\b=\"(?<text>[^\"]+)/g",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(cnpg_pg_stat_database_xact_commit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"}, datname)",
+        "description": "Database within the cluster",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Database",
+        "multi": true,
+        "name": "datname",
+        "options": [],
+        "query": {
+          "query": "label_values(cnpg_pg_stat_database_xact_commit{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\"}, datname)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "CloudNativePG Object Stats",
+  "uid": "cloudnative-pg-object-stats",
+  "version": 1,
+  "weekStart": ""
+}
