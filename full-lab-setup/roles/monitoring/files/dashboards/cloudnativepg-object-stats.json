@@ -31,7 +31,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "The 20 largest user tables by total on-disk size (heap + indexes + TOAST)",
+      "description": "The 20 largest user tables by total on-disk size (heap + indexes + TOAST). \"Seq Scans\"/\"Idx Scans\" are informational, not a pass/fail signal -- a table genuinely queried in bulk will always show high Seq Scans. Worth cross-referencing against table size (a huge table with heavy seq scans is more interesting than a small one), not an automatic red flag.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -154,6 +154,48 @@
           "range": false,
           "refId": "C",
           "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_table_size_seq_scan{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_table_size_idx_scan{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "max by (datname, schemaname, relname) (cnpg_pg_table_size_idx_tup_fetch{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"})",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "F",
+          "useBackend": false
         }
       ],
       "title": "Top 20 Tables by Size",
@@ -193,7 +235,10 @@
               "relname": 2,
               "Value #A": 3,
               "Value #B": 4,
-              "Value #C": 5
+              "Value #C": 5,
+              "Value #D": 6,
+              "Value #E": 7,
+              "Value #F": 8
             },
             "renameByName": {
               "datname": "Database",
@@ -201,7 +246,10 @@
               "relname": "Table",
               "Value #A": "Total Size",
               "Value #B": "Table Size",
-              "Value #C": "Index + TOAST Size"
+              "Value #C": "Index + TOAST Size",
+              "Value #D": "Seq Scans",
+              "Value #E": "Idx Scans",
+              "Value #F": "Idx Tuples Fetched"
             }
           }
         }
@@ -213,7 +261,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Tables where dead_tuples / (dead_tuples + live_tuples) already exceeds the effective autovacuum_vacuum_scale_factor for that table (resolving a per-table storage-parameter override before falling back to the GUC default) -- i.e. autovacuum is behind, disabled, or blocked, not just \"has some dead rows\"",
+      "description": "Tables where dead_tuples / (dead_tuples + live_tuples) already exceeds the effective autovacuum_vacuum_scale_factor for that table (resolving a per-table storage-parameter override before falling back to the GUC default) -- i.e. autovacuum is behind, disabled, or blocked, not just \"has some dead rows\". \"Last Vacuum\"/\"Last Autovacuum\" show how long ago each actually ran (blank means never) -- the direct answer to whether autovacuum is running at all, not just whether it's behind.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -251,6 +299,30 @@
               {
                 "id": "unit",
                 "value": "percentunit"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Vacuum"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last Autovacuum"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dtdurations"
               }
             ]
           }
@@ -323,6 +395,34 @@
           "legendFormat": "__auto",
           "range": false,
           "refId": "C",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "-(time() - max by (datname, schemaname, relname) (cnpg_pg_stat_user_tables_vacuum_last_vacuum{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"}))",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "D",
+          "useBackend": false
+        },
+        {
+          "disableTextWrap": false,
+          "exemplar": false,
+          "expr": "-(time() - max by (datname, schemaname, relname) (cnpg_pg_stat_user_tables_vacuum_last_autovacuum{k8s_cluster=~\"$k8s_cluster\",namespace=~\"$namespace\",pod=~\"$cluster-([1-9][0-9]*)$\",datname=~\"$datname\"}))",
+          "format": "table",
+          "fullMetaSearch": false,
+          "includeNullMetadata": true,
+          "instant": true,
+          "interval": "",
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "E",
           "useBackend": false
         }
       ],
@@ -435,7 +535,9 @@
               "Value #B": 3,
               "Value #A": 4,
               "Dead Ratio": 5,
-              "Value #C": 6
+              "Value #C": 6,
+              "Value #D": 7,
+              "Value #E": 8
             },
             "renameByName": {
               "datname": "Database",
@@ -443,7 +545,9 @@
               "relname": "Table",
               "Value #B": "Live Tuples",
               "Value #A": "Dead Tuples",
-              "Value #C": "Scale Factor"
+              "Value #C": "Scale Factor",
+              "Value #D": "Last Vacuum",
+              "Value #E": "Last Autovacuum"
             }
           }
         }

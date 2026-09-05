@@ -40,7 +40,10 @@ data:
           s.relname,
           pg_catalog.pg_total_relation_size(s.relid) AS total_bytes,
           pg_catalog.pg_relation_size(s.relid) AS table_bytes,
-          pg_catalog.pg_total_relation_size(s.relid) - pg_catalog.pg_relation_size(s.relid) AS index_toast_bytes
+          pg_catalog.pg_total_relation_size(s.relid) - pg_catalog.pg_relation_size(s.relid) AS index_toast_bytes,
+          s.seq_scan,
+          s.idx_scan,
+          s.idx_tup_fetch
         FROM pg_catalog.pg_stat_user_tables s
       metrics:
         - datname:
@@ -61,6 +64,15 @@ data:
         - index_toast_bytes:
             usage: "GAUGE"
             description: "On-disk size of the table's indexes and TOAST data"
+        - seq_scan:
+            usage: "GAUGE"
+            description: "Number of sequential scans since stats were last reset. Not inherently bad -- a table genuinely queried in bulk (small lookup tables, full-table reports) will always show high seq_scan. Worth looking at alongside table size and idx_scan, not a pass/fail signal on its own."
+        - idx_scan:
+            usage: "GAUGE"
+            description: "Number of index scans since stats were last reset"
+        - idx_tup_fetch:
+            usage: "GAUGE"
+            description: "Number of table rows fetched via index scans since stats were last reset -- context for idx_scan: a high scan count fetching very few rows per scan is a well-selective index, the same count fetching most of the table each time is closer to a seq scan in cost"
       target_databases:
         - '*'
 
@@ -77,7 +89,9 @@ data:
              FROM pg_catalog.pg_options_to_table(c.reloptions) o
              WHERE o.option_name = 'autovacuum_vacuum_scale_factor'),
             pg_catalog.current_setting('autovacuum_vacuum_scale_factor')::float8
-          ) AS vacuum_scale_factor
+          ) AS vacuum_scale_factor,
+          pg_catalog.extract(epoch from s.last_vacuum) AS last_vacuum,
+          pg_catalog.extract(epoch from s.last_autovacuum) AS last_autovacuum
         FROM pg_catalog.pg_stat_user_tables s
         JOIN pg_catalog.pg_class c ON c.oid = s.relid
       metrics:
@@ -99,6 +113,12 @@ data:
         - vacuum_scale_factor:
             usage: "GAUGE"
             description: "Effective autovacuum_vacuum_scale_factor for this table, resolving a per-table storage-parameter override before falling back to the GUC default"
+        - last_vacuum:
+            usage: "GAUGE"
+            description: "Unix timestamp of the last manual VACUUM; null if never manually vacuumed"
+        - last_autovacuum:
+            usage: "GAUGE"
+            description: "Unix timestamp of the last autovacuum run; null if autovacuum has never run on this table -- the direct answer to whether autovacuum is actually running, not just whether it's behind"
       target_databases:
         - '*'
 
