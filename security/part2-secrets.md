@@ -13,7 +13,7 @@ In part 3, we will pivot to a production pattern: shifting to an external, centr
 
 ## 📋 Prerequisites: The Vault "Contract of Trust"
 
-Before we configure Kubernetes to pull secrets and sign certificates, your HashiCorp Vault instance must be configured with three key pillars: Access (Who), Engines (What), and Policies (Permitted Actions).
+Before we configure Kubernetes to pull secrets and sign certificates, your HashiCorp Vault instance must be configured with four building blocks: Engines (What), Access (Who), Policies (Permitted Actions), and the Roles that bind them together.
 
 No matter how you deploy or manage Vault, verify that these four prerequisites are met:
 ### 1. **Enabled Secrets Engines**
@@ -115,8 +115,7 @@ Finally, these policies must be mapped to your Kubernetes workloads via Vault Ro
 
 In this guide, we assume these four pieces are in place.
 
----CloudNativePG & HashiCorp Vault (Part 3): Centralized Vault, Multi-Cluster Topologies, and Cross-Cluster mTLS
-
+---
 
 ## 🤝 The Authentication Handshake (Under the Hood)
 
@@ -227,7 +226,7 @@ The exact same mechanism happens for cert-manager:
 
 ## PHASE 1: HTTP ##
 
-## Step 1: ESO (External Secret Operator) => create the ClusterSecretStore
+### Step 1: ESO (External Secret Operator) => create the ClusterSecretStore
 ```yaml
 # cluster-secret-store-http.yaml
 
@@ -259,7 +258,7 @@ NAME            AGE     STATUS   CAPABILITIES   READY
 vault-backend   7d22h   Valid    ReadWrite      True
 ```
 
-## Step 2: cert-manager => create the 2 issuers
+### Step 2: cert-manager => create the 2 issuers
 ```yaml
 # cnpg-server-issuer-http.yaml
 
@@ -374,7 +373,7 @@ NAME            AGE     STATUS   CAPABILITIES   READY
 vault-backend   7d22h   Valid    ReadWrite      True
 ```
 
-## Step 3: cert-manager => create the 2 issuers
+### Step 3: cert-manager => create the 2 issuers
 ```yaml
 # cnpg-server-issuer-https.yaml
 
@@ -479,6 +478,9 @@ spec:
     name: cnpg-dev-admin # This is the actual K8s Secret CNPG will use
     template:
       type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true" # Apply a rotated password immediately
   data:
     - secretKey: username
       remoteRef:
@@ -564,7 +566,7 @@ pg-cluster-replication-tls   kubernetes.io/tls          3      20m
 pg-cluster-server-tls        kubernetes.io/tls          3      119s
 ```
 
-### 2. Create the instance
+### 3. Create the instance
 
 ```yaml
 # pg-cluster.yaml
@@ -635,13 +637,13 @@ pg-cluster-3  0/6000060    Standby (async)   OK      BestEffort  1.30.0         
 kubectl cnpg psql pg-cluster -n dev -- -h 127.0.0.1 -U admin -d admindb  # you'll be prompted for the password you used in your external secret
 ```
 
-## PHASE 2: Create additional users with `DatabaseRole` ##
+## PHASE 3: Create additional users with `DatabaseRole` ##
 
 Here, we will create two users:
 - `human-user` with a password
 - `app-user` with mTLS
 
-#### Step 1: create the secret in the `vault` for `human-user`
+### Step 1: create the secret in the `vault` for `human-user`
 There are several ways of doing it depending on your environment.
 
 It must respect the following:
@@ -649,7 +651,7 @@ It must respect the following:
 - username="human-user"
 - password="HumanUserSecurePassword456!" <= The password can be changed
 
-#### Step 2: create the external secret
+### Step 2: create the external secret
 ```yaml
 # human-user-es.yaml
 
@@ -665,6 +667,11 @@ spec:
     kind: ClusterSecretStore
   target:
     name: human-user
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true" # Apply a rotated password immediately
   data:
     - secretKey: password
       remoteRef:
@@ -686,7 +693,7 @@ kubectl get secret human-user -n dev
 # Should exist and have type: kubernetes.io/basic-auth
 ```
 
-#### Step 3: create the `DatabaseRole` for `human-user`
+### Step 3: create the `DatabaseRole` for `human-user`
 ```yaml
 # human-user-dr.yaml
 
@@ -717,7 +724,7 @@ human-user   78s   pg-cluster   human-user   true
 kubectl cnpg psql pg-cluster -n dev -- -h 127.0.0.1 -U human-user -d admindb  # you'll be prompted for the password you used in your external secret
 ```
 
-### Step 5: create the certificate for `app-user`
+### Step 4: create the certificate for `app-user`
 ```yaml
 # app-user-cert.yaml
 
@@ -746,6 +753,7 @@ pg-cluster-server-cert        True    pg-cluster-server-tls        64m
 ```
 
 ### Step 5: create the `DatabaseRole` for `app-user`
+
 ```yaml
 # app-user-dr.yaml
 

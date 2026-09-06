@@ -1,4 +1,4 @@
-apiVersion: external-secrets.io/v1beta1
+apiVersion: external-secrets.io/v1
 kind: ExternalSecret
 metadata:
   name: cnpg-dev-admin-es
@@ -12,6 +12,9 @@ spec:
     name: cnpg-dev-admin # This is the actual K8s Secret CNPG will use
     template:
       type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true" # Apply a rotated password immediately
   data:
     - secretKey: username
       remoteRef:

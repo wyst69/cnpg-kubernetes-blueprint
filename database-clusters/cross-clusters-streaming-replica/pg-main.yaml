@@ -30,7 +30,6 @@ spec:
     source: pg-dr              # where it streams FROM once demoted
 
   externalClusters:
-  externalClusters:
     - name: pg-main
       connectionParameters:
         host: pg-main-rw.main.svc

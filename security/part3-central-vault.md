@@ -4,7 +4,7 @@
 To write this article I needed a specific lab environment with two K8s clusters and an external HashiCorp Vault.
 I created this environment using docker and k3d.
 In the folder `part3-lab-setup`, you'll find:
-- a complete walkthrough for setting the same environment manually (part3-setup-lab.md)
+- a complete walkthrough for setting the same environment manually (part3-lab-setup.md)
 - playbooks to automate the creation and destruction of this environment (look at README.md)
 Using one method or the other will lead to the exact same result: two K8s clusters fully ready for secret management. That includes everything explained in SECTION 1, SECTION 2 and SECTION 3 Step 1 of this article.
 
@@ -485,24 +485,24 @@ spec:
       secret:
         name: app-user-credentials
 
+  # Expose Cluster A's primary to Cluster B via MetalLB.
+  # CNPG owns this Service: `selectorType: rw` means the operator maintains the
+  # selector, so it follows the primary across a failover on its own.
+  managed:
+    services:
+      additional:
+        - selectorType: rw
+          serviceTemplate:
+            metadata:
+              name: cnpg-primary-lb
+              annotations:
+                # ADAPT to your own Load Balancer IP range
+                metallb.universe.tf/loadBalancerIPs: 172.18.250.10
+            spec:
+              type: LoadBalancer
+
   storage:
     size: 1Gi
----
-# 5. Expose Cluster A Primary to Cluster B via MetalLB
-apiVersion: v1
-kind: Service
-metadata:
-  name: cnpg-primary-lb
-  namespace: default
-spec:
-  type: LoadBalancer
-  loadBalancerIP: 172.18.250.10 # ADAPT to your own Load Balancer IP range
-  ports:
-    - port: 5432
-      targetPort: 5432
-  selector:
-    cnpg.io/cluster: cnpg-primary
-    cnpg.io/instanceRole: primary
 ```
 
 ```bash
@@ -700,8 +700,13 @@ cnpg-standby-2                 0/8000060    Standby (in Replica Cluster)  OK    
 │ Database Passwords       │ Rotate/Update in DR  │ Unchanged in Vault    │
 │ Server TLS Trust         │ Update Client Trust  │ Root CA Preserved     │
 │ Client mTLS Identity     │ Re-issue Client Certs│ Valid across DCs      │
-│ Downtime Recovery Time   │ Hours (High Risk)    │ Seconds (Low Risk)    │
+│ Manual Steps at Failover │ Many (High Risk)     │ None (Low Risk)       │
 └──────────────────────────┴──────────────────────┴───────────────────────┘
+
+The last row is the point of the whole series: nothing in this table has to be
+re-issued, re-synced or re-configured when Cluster A goes away. How long the
+promotion itself takes is a separate question — that is the subject of the
+failover/failback article, not of the security plumbing built here.
 
 - Unchanged Application Credentials: The application workload running in Cluster B already uses the app-user-credentials secret managed by ESO. Because the password stored at kv/data/cnpg/app-user in Vault is identical, application pods in Cluster B connect immediately without configuration changes.
 

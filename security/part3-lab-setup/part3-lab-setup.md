@@ -4,7 +4,7 @@ Before starting building this lab environment, we need the following components 
 - kubectl: https://kubernetes.io/docs/tasks/tools/
 - k3d: https://k3d.io/stable/ (on MacOS, you can install it via Homebrew: `brew install k3d`)
 - helm: https://helm.sh/docs/intro/install/
-- CloudNativePG Plugin: https://cloudnative-pg.io/documentation/1.18/cnpg-plugin/
+- CloudNativePG Plugin: https://cloudnative-pg.io/docs/1.30/kubectl-plugin
 
 In the following, we'll use the placeholder <HOST_IP> to represent the IP of the host running docker.
 

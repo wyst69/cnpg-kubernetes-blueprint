@@ -96,16 +96,22 @@ spec:
   cluster:
     name: pg-main
   databaseRoleReclaimPolicy: delete  # Declarative cleanup
-  roles:
-    - name: app_billing       # <--- This is the actual SQL role name inside Postgres
-      login: true
-      comment: "Transactional microservice workload"
-      disablePassword: true   # <--- Forcefully disables password authentication in the DB
-      clientCertificate:
-        enabled: true
-      inRoles:
-        - app_read_write      # <-- Inherits permissions from the schema group role
+  name: app_billing         # <--- This is the actual SQL role name inside Postgres
+  login: true
+  comment: "Transactional microservice workload"
+  disablePassword: true     # <--- Forcefully disables password authentication in the DB
+  clientCertificate:
+    enabled: true
+  inRoles:
+    - app_read_write        # <-- Inherits permissions from the schema group role
 ```
+
+> 📌 **One role per object:** a `DatabaseRole` describes a *single* role, so the
+> role attributes sit directly under `spec` — there is no `roles:` list here.
+> That list belongs to the older inline form, `Cluster.spec.managed.roles`, which
+> takes an array of the same fields. Note also that `clientCertificate` exists
+> **only** on `DatabaseRole`: the mTLS pattern below is not available through
+> `managed.roles`, which is precisely why the standalone CRD matters.
 
 > 📌 **Strict Naming Convention Rule:** 
 > The CNPG operator enforces a strict, non-configurable naming convention for the generated client TLS secret. It takes the **Kubernetes resource metadata name** (here, `app-billing-role`) and appends `-client-cert` to it. It does *not* use the internal SQL role name (`app_billing`). Therefore, your application deployment must mount a secret named exactly: **`app-billing-role-client-cert`**.
@@ -115,7 +121,7 @@ spec:
 To connect to the database, the application must mount this secret and configure its client driver. 
 
 > ⚠️ **PostgreSQL Client Private Key Security Rule:**
-> PostgreSQL client drivers (like `libpq`) strictly enforce file permissions on private keys. If the private key file is readable by other users (i.e., anything other than `0600`), the connection will be rejected. You *must* configure `defaultMode: 256` (`0600` octal) on the Kubernetes volume mount.
+> PostgreSQL client drivers (like `libpq`) strictly enforce file permissions on private keys. If the private key file is group- or world-readable, the connection is rejected. Set `defaultMode: 0600` on the volume mount — YAML reads the leading zero as octal, so that is `384` in decimal if you prefer to be explicit.
 
 ```yaml
 apiVersion: apps/v1
@@ -125,7 +131,13 @@ metadata:
   namespace: database-prod
 spec:
   replicas: 2
+  selector:
+    matchLabels:
+      app: billing-service
   template:
+    metadata:
+      labels:
+        app: billing-service
     spec:
       containers:
         - name: app
@@ -142,7 +154,7 @@ spec:
         - name: db-certs
           secret:
             secretName: app-billing-role-client-cert
-            defaultMode: 0600 # Hex/Decimal equivalent for owner-only read/write
+            defaultMode: 0600 # octal -> owner read/write only
 ```
 
 ---
@@ -163,13 +175,12 @@ spec:
   cluster:
     name: pg-main
   databaseRoleReclaimPolicy: retain  # Keep the database identity intact even if YAML is deleted
-  roles:
-    - name: lead_dba
-      login: true
-      comment: "Human administrator access role"
-      passwordSecret:
-        name: dba-bootstrap-password # Basic-auth format containing username/password
-      connectionLimit: 5             # Prevent concurrent session exhaustion
+  name: lead_dba
+  login: true
+  comment: "Human administrator access role"
+  passwordSecret:
+    name: dba-bootstrap-password     # Basic-auth format containing username/password
+  connectionLimit: 5                 # Prevent concurrent session exhaustion
 ```
 
 ---

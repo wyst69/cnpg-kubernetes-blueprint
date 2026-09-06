@@ -10,6 +10,11 @@ spec:
     kind: ClusterSecretStore
   target:
     name: human-user
+    template:
+      type: kubernetes.io/basic-auth
+      metadata:
+        labels:
+          cnpg.io/reload: "true" # Apply a rotated password immediately
   data:
     - secretKey: password
       remoteRef:

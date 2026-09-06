@@ -1,7 +1,7 @@
 # Cross-clusters Bidirectional Streaming Replication Setup
 
 This folder contains a production-grade, highly available dual-cluster topology spanning two namespaces (`main` and `dr`) with automated quorum matching via `method: first` and complete Mutual TLS (mTLS) authentication.
-The same exact mechanisms can be be used across two different k8s clusters sitting in two different data centers.
+The same mechanisms can be be used across two different k8s clusters sitting in two different data centers.
 
 ## 🔐 Prerequisites: The two clusters MUST have access to the same S3-compatible bucket
 
@@ -20,8 +20,7 @@ Example:
 ``` yaml
 apiVersion: v1
 data:
-  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJnakNDQVNpZ0F3SUJBZ0lRVGo1TDQ2WnI0eGRjVVpUMGZHSFg0ekFLQmdncWhrak9QUVFEQWpBaE1RMHcKQ3dZRFZRUUxFd1J0WVdsdU1SQXdEZ1lEVlFRREV3ZHdaeTF0WVdsdU1CNFhEVEkyTURjeE1URXlNak0wT0ZvWApEVEkyTVRBd09URXlNak0wT0Zvd0lURU5NQXNHQTFVRUN4TUViV0ZwYmpFUU1BNEdBMVVFQXhNSGNHY3RiV0ZwCmJqQlpNQk1HQnlxR1NNNDlBZ0VHQ0NxR1NNNDlBd0VIQTBJQUJLNjRYM2QvcGFqS1BRb0JENlFmSWZzY3gwWS8KQVBVbUcxaTF6eVFlS0ZxUDl1R0pXUm5nT1l1TlNhaTQvWFNCZ25KWXgySmFGVk9WRGQ4WVgzSUtHM3VqUWpCQQpNQTRHQTFVZER3RUIvd1FFQXdJQ0JEQVBCZ05WSFJNQkFmOEVCVEFEQVFIL01CMEdBMVVkRGdRV0JCUUkweU5SCjZpR0ovNWJaUjJ2TnIzYXFLd0ZEQlRBS0JnZ3Foa2pPUFFRREFnTklBREJGQWlFQTVxU0JlMjNsT3V0R2pkbDQKWElaYjR5TEJwSkQvYmhTS05qb3NTclNHZnZzQ0lEb1MzNEpuMUoyVTU4VFZyNlpWcnFvMUxkTjZ3b1o3UmRwcwpVd0JtZTE3KwotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0tCg==
-  ca.key: LS0tLS1CRUdJTiBFQyBQUklWQVRFIEtFWS0tLS0tCk1IY0NBUUVFSU81Z2ttRlRxNm54T2I2eXFjVUpUSndJMnQzWWw5NmQvVkhxaVVCMFFrdGtvQW9HQ0NxR1NNNDkKQXdFSG9VUURRZ0FFcnJoZmQzK2xxTW85Q2dFUHBCOGgreHpIUmo4QTlTWWJXTFhQSkI0b1dvLzI0WWxaR2VBNQppNDFKcUxqOWRJR0NjbGpIWWxvVlU1VU4zeGhmY2dvYmV3PT0KLS0tLS1FTkQgRUMgUFJJVkFURSBLRVktLS0tLQo=
+  ca.crt: LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t...   # <-- truncated: use pg-main's own ca.crt
 kind: Secret
 metadata:
   labels:

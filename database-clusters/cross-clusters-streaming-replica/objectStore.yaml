@@ -22,4 +22,4 @@ spec:
     wal:
       compression: gzip
     data:
-      compression: gzip
+      compression: snappy
