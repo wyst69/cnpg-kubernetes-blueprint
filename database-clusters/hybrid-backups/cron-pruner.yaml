@@ -1,0 +1,111 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cnpg-pruner
+  namespace: default
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        spec:
+          serviceAccountName: cnpg-pruner
+          restartPolicy: OnFailure
+          containers:
+          - name: pruner
+            image: bitnami/kubectl:latest
+            volumeMounts:
+            - name: retention-config
+              mountPath: /config
+              readOnly: true
+            command:
+            - /bin/sh
+            - -c
+            - |
+              set -euo pipefail
+
+              NAMESPACE=$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)
+
+              # Parses a duration string in the same "30d" / "4h" / "90m" / "45s"
+              # convention CNPG's own ObjectStore.spec.retentionPolicy already
+              # uses, into a whole number of seconds. A bare number of days
+              # doesn't fit a hybrid setup well: Tier-1 snapshots are often
+              # taken every few hours purely for fast recovery, with barman
+              # backups to object storage covering actual longevity, so the
+              # snapshot side needs to express a window in hours (or minutes),
+              # not be forced into fractional days.
+              parse_duration_seconds() {
+                dur="$1"
+                unit="${dur: -1}"
+                num="${dur%$unit}"
+                case "$unit" in
+                  d) echo $((num*86400)) ;;
+                  h) echo $((num*3600)) ;;
+                  m) echo $((num*60)) ;;
+                  s) echo $((num)) ;;
+                  *) echo "Invalid retention duration '$dur' (expected a trailing d/h/m/s, e.g. 4h)" >&2; exit 1 ;;
+                esac
+              }
+
+              # Prunes one resource kind for one cluster, applying the same
+              # retention/minRedundancy math the snapshot pruner always used.
+              # $1: resource kind (volumesnapshot | backup)
+              # $2: extra jq select(...) clause, or "" — used to restrict
+              #     `backup` pruning to method==volumeSnapshot only, so a
+              #     barman/plugin-method Backup CR (pruned separately by the
+              #     ObjectStore's own retentionPolicy) is never touched here.
+              prune() {
+                kind="$1"
+                extra_filter="$2"
+
+                nbValid=$(kubectl get "$kind" -n "$NAMESPACE" -o json |
+                  jq -r --arg name "$cluster_name" --arg retention "$cluster_retention_seconds" \
+                  "[.items[] | select(.metadata.labels[\"cnpg.io/cluster\"] == \$name)$extra_filter |
+                  select(.metadata.creationTimestamp >= (now - (\$retention | tonumber) | todateiso8601))] | length")
+                echo "  [$kind] Valid: $nbValid"
+
+                if [ "$nbValid" -ge "$cluster_minredundancy" ]; then
+                  kubectl get "$kind" -n "$NAMESPACE" -o json |
+                    jq -r --arg name "$cluster_name" --arg retention "$cluster_retention_seconds" \
+                    ".items[] | select(.metadata.labels[\"cnpg.io/cluster\"] == \$name)$extra_filter |
+                    select(.metadata.creationTimestamp < (now - (\$retention | tonumber) | todateiso8601)) |
+                    .metadata.name" |
+                  xargs -r kubectl delete "$kind" -n "$NAMESPACE"
+                else
+                  nbOffset=$((nbValid-cluster_minredundancy))
+                  echo "  [$kind] offset: $nbOffset"
+                  kubectl get "$kind" -n "$NAMESPACE" -o json |
+                    jq -r --arg name "$cluster_name" --arg retention "$cluster_retention_seconds" --arg offset "$nbOffset" \
+                    "[.items[] | select(.metadata.labels[\"cnpg.io/cluster\"] == \$name)$extra_filter |
+                    select(.metadata.creationTimestamp < (now - (\$retention | tonumber) | todateiso8601))] |
+                    sort_by(.metadata.creationTimestamp) | .[:(\$offset | tonumber)] | .[].metadata.name" |
+                  xargs -r kubectl delete "$kind" -n "$NAMESPACE"
+                fi
+              }
+
+              cat /config/retention.json |
+              jq -r '.clusters | .[] |
+              [.name, .retention, if has("minRedundancy") then .minRedundancy else "0" end, if has("suspend") then .suspend else "false" end] |
+              join(" ")' |
+              while read -r cluster_name cluster_retention cluster_minredundancy cluster_suspend
+              do
+                cluster_suspend=$(echo $cluster_suspend | tr '[:upper:]' '[:lower:]')
+                if [ "$cluster_suspend" == 'true' ]; then
+                  echo "Skipping cluster: $cluster_name (Suspend: $cluster_suspend)";
+                  continue
+                fi
+
+                cluster_retention_seconds=$(parse_duration_seconds "$cluster_retention")
+                echo "Processing cluster: $cluster_name (Retention: $cluster_retention, Minimum Redundancy: $cluster_minredundancy)";
+
+                prune volumesnapshot ""
+                prune backup '| select(.spec.method == "volumeSnapshot")'
+              done
+          volumes:
+          - name: retention-config
+            configMap:
+              name: cnpg-cluster-retention

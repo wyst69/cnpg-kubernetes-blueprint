@@ -1,0 +1,29 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: pg-cluster
+  namespace: default
+spec:
+  instances: 3
+  imageName: ghcr.io/cloudnative-pg/postgresql:18
+
+  storage:
+    size: 2Gi
+
+  # WAL archiver + long-term backup path: continuously ships WAL, and
+  # ScheduledBackup (method: plugin) periodically takes a base backup —
+  # both pruned automatically via the ObjectStore's own retentionPolicy.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: minio-store # <== REPLACE WITH THE NAME OF YOUR OBJECT STORE RESSOURCE
+        serverName: pg-cluster
+
+  # Fast-recovery path: block-level snapshot of PG_DATA (and PG_WAL/tablespaces
+  # if their own class names are set). Requires the referenced
+  # VolumeSnapshotClass to already exist — CNPG does not create it.
+  # No automatic retention on this side: see cron-pruner.yaml.
+  backup:
+    volumeSnapshot:
+      className: nfs-csi-snapclass # <-- csi-nfs's default class — MAY DIFFER IN YOUR ENVIRONMENT

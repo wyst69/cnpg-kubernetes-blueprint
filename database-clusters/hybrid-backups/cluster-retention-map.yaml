@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cnpg-cluster-retention
+  namespace: default
+data:
+  retention.json: |
+    {
+      "clusters": [
+        {
+          "name": "pg-cluster",
+          "retention": "4h",
+          "minRedundancy": "1"
+        },
+        {
+          "name": "cluster-restore",
+          "retention": "2d",
+          "suspend": "True"
+        }
+      ]
+    }

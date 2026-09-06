@@ -1,0 +1,35 @@
+# =====================================================================
+# Two independent backup schedules on the same Cluster — different methods,
+# different purposes. Nothing links them beyond both targeting pg-cluster.
+# =====================================================================
+
+# Long-term, off-cluster retention. Pruned automatically by the
+# ObjectStore's retentionPolicy (objectStore.yaml).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: pg-cluster-barman-daily
+  namespace: default
+spec:
+  cluster:
+    name: pg-cluster
+  schedule: "0 0 1 * * *" # daily at 01:00:00 -- CNPG cron format has a leading seconds field, NOT standard 5-field crontab
+  target: prefer-standby
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+
+---
+# Fast-recovery path. NOT pruned by CNPG — see cron-pruner.yaml, and add a
+# matching entry to cluster-retention-map.yaml for this cluster.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: pg-cluster-snapshot-4h
+  namespace: default
+spec:
+  cluster:
+    name: pg-cluster
+  schedule: "0 0 */4 * * *" # every 4 hours -- CNPG cron format has a leading seconds field, NOT standard 5-field crontab
+  target: prefer-standby
+  method: volumeSnapshot
