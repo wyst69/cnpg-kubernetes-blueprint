@@ -1,0 +1,57 @@
+# {{ ansible_managed }}
+# Loki on the management hub — single-binary mode, filesystem storage on a
+# PVC. This is a lab: no gateway, no memcached caching tiers, no canary/test
+# pods, retention kept short and driven by components.logging.retention.
+---
+deploymentMode: SingleBinary
+
+loki:
+  auth_enabled: false
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: filesystem
+  # "useTestSchema" is the chart's own documented shortcut for "testing or
+  # playing around" instead of hand-writing a schemaConfig -- exactly this
+  # lab's use case.
+  useTestSchema: true
+  limits_config:
+    retention_period: {{ components.logging.retention }}
+    volume_enabled: true
+  compactor:
+    retention_enabled: true
+    working_directory: /var/loki/compactor
+    delete_request_store: filesystem
+
+singleBinary:
+  replicas: 1
+  persistence:
+    enabled: true
+    size: {{ loki_data_size }}
+    storageClass: {{ lab_storage_class }}
+  service:
+    type: LoadBalancer
+    # nodePort is patched in by the role: the chart drops it for LoadBalancer.
+    annotations:
+      metallb.universe.tf/loadBalancerIPs: "{{ hub_service_ips.loki }}"
+
+# Single-binary mode only -- disable the Simple Scalable Deployment pods.
+write:
+  replicas: 0
+read:
+  replicas: 0
+backend:
+  replicas: 0
+
+# Not needed for a lab: exposes Loki's own Service directly instead.
+gateway:
+  enabled: false
+
+test:
+  enabled: false
+lokiCanary:
+  enabled: false
+chunksCache:
+  enabled: false
+resultsCache:
+  enabled: false

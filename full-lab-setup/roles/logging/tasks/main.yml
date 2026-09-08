@@ -1,0 +1,28 @@
+---
+# =============================================================================
+# logging — Loki on the hub + a Vector DaemonSet per workload cluster.
+#
+# Optional: components.logging.enabled. Only implemented for
+# components.monitoring.stack == kube-prometheus for now (see components.yml).
+# =============================================================================
+
+- name: Skip the logging role for stacks other than kube-prometheus
+  ansible.builtin.debug:
+    msg: >-
+      components.logging is enabled but components.monitoring.stack is
+      '{{ components.monitoring.stack }}', not 'kube-prometheus' -- the
+      Loki+Vector path isn't implemented for that stack yet, skipping.
+      See otel_signoz.yml for that stack's own log path.
+  when: components.monitoring.stack != 'kube-prometheus'
+
+- name: Deploy Loki and Vector
+  when: components.monitoring.stack == 'kube-prometheus'
+  block:
+    - name: Deploy Loki on the hub
+      ansible.builtin.include_tasks: loki.yml
+
+    - name: Create the WORM bucket for audit logs
+      ansible.builtin.include_tasks: worm_bucket.yml
+
+    - name: Deploy Vector on the workload clusters
+      ansible.builtin.include_tasks: vector.yml

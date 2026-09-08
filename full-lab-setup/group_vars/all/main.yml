@@ -43,6 +43,7 @@ hub_service_ips:
   prometheus: "172.20.50.13"
   signoz: "172.20.50.14"
   signoz_otlp: "172.20.50.15"
+  loki: "172.20.50.16"
 
 # Each hub Service is type LoadBalancer *and* pins a nodePort, so the same
 # Service is reachable two ways: by LB IP from the other clusters, and by
@@ -55,6 +56,7 @@ hub_node_ports:
   prometheus: 31909
   signoz_ui: 31808
   signoz_otlp: 31417
+  loki: 31910
 
 # Host address the hub's ports are published on.
 hub_publish_address: "0.0.0.0"

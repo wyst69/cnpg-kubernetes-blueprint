@@ -1,0 +1,106 @@
+---
+- name: Add the grafana Helm repository
+  ansible.builtin.command: "helm repo add grafana {{ helm_repos.grafana }} --force-update"
+  changed_when: false
+
+- name: Update the grafana Helm repository
+  ansible.builtin.command: "helm repo update grafana"
+  changed_when: false
+
+- name: Render the Loki values
+  ansible.builtin.template:
+    src: loki-values.yaml.j2
+    dest: "{{ loki_manifest_values_path }}"
+    mode: "0644"
+
+- name: Probe the installed Loki release
+  ansible.builtin.command: >-
+    helm list --namespace {{ loki_namespace }} --filter ^loki$
+    --kube-context {{ hub_cluster.context }} -o json
+  register: loki_probe
+  changed_when: false
+  failed_when: false
+
+- name: Install or upgrade Loki on the hub
+  ansible.builtin.command: >-
+    helm upgrade --install loki grafana/loki
+    --namespace {{ loki_namespace }} --create-namespace
+    {% if loki_chart_version %}--version {{ loki_chart_version }}{% endif %}
+    --values {{ loki_manifest_values_path }}
+    --kube-context {{ hub_cluster.context }}
+    --wait --timeout 10m
+  changed_when: >-
+    '"status":"deployed"' not in loki_probe.stdout
+    or (loki_chart_version | length > 0
+        and ('"chart":"loki-' ~ loki_chart_version ~ '"')
+            not in loki_probe.stdout)
+
+- name: Pin the Loki Service nodePort
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --context
+      - "{{ hub_cluster.context }}"
+      - -n
+      - "{{ loki_namespace }}"
+      - patch
+      - svc
+      - loki
+      - -p
+      - "{{ {'spec': {'ports': [{'port': 3100, 'nodePort': hub_node_ports.loki}]}} | to_json }}"
+  register: loki_nodeport
+  changed_when: "'no change' not in loki_nodeport.stdout"
+
+- name: Wait for the Loki rollout
+  ansible.builtin.command: >-
+    kubectl --context {{ hub_cluster.context }} -n {{ loki_namespace }}
+    rollout status statefulset/loki --timeout=300s
+  changed_when: false
+
+- name: Wait for MetalLB to assign the Loki LoadBalancer address
+  ansible.builtin.command: >-
+    kubectl --context {{ hub_cluster.context }} -n {{ loki_namespace }}
+    get svc loki -o jsonpath={.status.loadBalancer.ingress[0].ip}
+  register: loki_lb_ip
+  until: loki_lb_ip.stdout == hub_service_ips.loki
+  retries: 20
+  delay: 5
+  changed_when: false
+  failed_when: false
+
+- name: Fail if Loki did not get the expected LoadBalancer address
+  ansible.builtin.assert:
+    that: loki_lb_ip.stdout == hub_service_ips.loki
+    fail_msg: >-
+      Loki's Service has address '{{ loki_lb_ip.stdout | default('<none>') }}'
+      but the workload clusters are configured to reach it at
+      {{ hub_service_ips.loki }}.
+
+- name: Add the Loki Grafana datasource
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --context
+      - "{{ hub_cluster.context }}"
+      - -n
+      - monitoring
+      - create
+      - configmap
+      - loki-datasource
+      - "--from-literal=loki-datasource.yaml={{ lookup('template', 'grafana-loki-datasource.yaml.j2') }}"
+      - --dry-run=client
+      - -o
+      - json
+  register: loki_datasource_manifest
+  changed_when: false
+
+- name: Apply the Loki Grafana datasource ConfigMap
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    echo '{{ loki_datasource_manifest.stdout }}'
+    | jq '.metadata.labels.grafana_datasource="1"'
+    | kubectl apply --context {{ hub_cluster.context }} --server-side --force-conflicts -f -
+  args:
+    executable: /bin/bash
+  register: loki_datasource_apply
+  changed_when: "'unchanged' not in loki_datasource_apply.stdout"

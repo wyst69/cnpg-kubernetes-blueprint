@@ -58,6 +58,28 @@ lab_component_defaults:
     workload_agents: true       # kube-prometheus only
     retention: 24h
 
+  # --- Log collection ---------------------------------------------------------
+  # Loki on the hub + a Vector DaemonSet on each workload cluster, shipping
+  # every pod's stdout to Loki. pgaudit-tagged lines (CNPG's own `logger` field)
+  # are additionally forked to a write-once MinIO bucket (S3 Object Lock,
+  # COMPLIANCE mode — genuinely unbypassable, verified empirically) for a
+  # tamper-evident audit trail, separate from Loki's own mutable retention.
+  # Only implemented for components.monitoring.stack == kube-prometheus for
+  # now; the otel-signoz stack already ships its own logs via SigNoz's OTel
+  # Collector and needs a different (deferred) integration for the WORM side.
+  logging:
+    enabled: false
+    retention: 1d               # Loki log retention -- lab default, keep short
+    worm_bucket: pgaudit-logs
+    worm_retention: 1d          # COMPLIANCE-mode retention -- cannot be shortened once set
+    # Dedicated MinIO user for Vector's aws_s3 sink, scoped to PutObject +
+    # ListBucket on worm_bucket only (no delete, no admin, no other
+    # buckets) -- NOT the MinIO root user. Root can still write/delete
+    # freely outside what Object Lock protects, which defeats the point of
+    # a hardened audit trail.
+    worm_writer_user: vector-pgaudit-writer
+    worm_writer_password: change-me-vector-pgaudit-writer
+
 # --- Your overrides ----------------------------------------------------------
 # Empty means "take the catalogue as-is".
 lab_components: {}

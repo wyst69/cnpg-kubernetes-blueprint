@@ -1,0 +1,70 @@
+---
+# =============================================================================
+# WORM bucket for the pgaudit trail — Object Lock can only be enabled at
+# bucket creation time, so this is a dedicated task, not part of hub_minio's
+# generic minio_buckets loop (which stays lock-free).
+# =============================================================================
+
+- name: Probe for the WORM audit-log bucket
+  ansible.builtin.command: "mc ls {{ minio_mc_alias }}/{{ components.logging.worm_bucket }}"
+  register: worm_bucket_probe
+  changed_when: false
+  failed_when: false
+
+- name: Create the WORM audit-log bucket
+  ansible.builtin.command: >-
+    mc mb --with-lock {{ minio_mc_alias }}/{{ components.logging.worm_bucket }}
+  when: worm_bucket_probe.rc != 0
+  register: worm_bucket_create
+  changed_when: "worm_bucket_create.rc == 0"
+
+- name: Probe the bucket's current default retention
+  ansible.builtin.command: "mc retention info {{ minio_mc_alias }}/{{ components.logging.worm_bucket }}"
+  register: worm_retention_probe
+  changed_when: false
+  failed_when: false
+
+- name: Set the bucket's default COMPLIANCE retention
+  ansible.builtin.command: >-
+    mc retention set --default COMPLIANCE {{ components.logging.worm_retention }}
+    {{ minio_mc_alias }}/{{ components.logging.worm_bucket }}
+  changed_when: "worm_retention_probe.rc != 0"
+
+- name: Render the WORM writer IAM policy
+  ansible.builtin.template:
+    src: worm-writer-policy.json.j2
+    dest: "{{ worm_writer_policy_path }}"
+    mode: "0644"
+
+- name: Create the WORM writer IAM policy
+  ansible.builtin.command: >-
+    mc admin policy create {{ minio_mc_alias }} worm-writer-policy {{ worm_writer_policy_path }}
+  register: worm_policy_create
+  changed_when: "'created' in worm_policy_create.stdout or 'updated' in worm_policy_create.stdout"
+
+- name: Probe for the WORM writer user
+  ansible.builtin.command: >-
+    mc admin user info {{ minio_mc_alias }} {{ components.logging.worm_writer_user }}
+  register: worm_user_probe
+  changed_when: false
+  failed_when: false
+  no_log: true
+
+- name: Create the WORM writer user
+  ansible.builtin.command: >-
+    mc admin user add {{ minio_mc_alias }} {{ components.logging.worm_writer_user }}
+    {{ components.logging.worm_writer_password }}
+  when: worm_user_probe.rc != 0
+  changed_when: true
+  no_log: true
+
+- name: Attach the WORM writer policy to the WORM writer user
+  ansible.builtin.command: >-
+    mc admin policy attach {{ minio_mc_alias }} worm-writer-policy
+    --user {{ components.logging.worm_writer_user }}
+  register: worm_policy_attach
+  changed_when: "'already' not in (worm_policy_attach.stdout | default('')) and 'already' not in (worm_policy_attach.stderr | default(''))"
+  failed_when: >-
+    worm_policy_attach.rc != 0
+    and 'already' not in (worm_policy_attach.stdout | default(''))
+    and 'already' not in (worm_policy_attach.stderr | default(''))

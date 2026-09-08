@@ -1,0 +1,64 @@
+# {{ ansible_managed }}
+# Vector's actual pipeline config, supplied as a plain ConfigMap.
+#
+# The K8S_CLUSTER_NAME env var (set per-cluster via the Helm values env:) is
+# read at runtime via VRL's get_env_var!() and set as a per-event field.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vector-config
+  namespace: {{ vector_namespace }}
+data:
+  vector.yaml: |
+    data_dir: /vector-data-dir
+
+    sources:
+      k8s_logs:
+        type: kubernetes_logs
+
+    transforms:
+      parse_cnpg_json:
+        type: remap
+        inputs: ["k8s_logs"]
+        source: |
+          # Not every line is valid JSON (non-CNPG containers, startup
+          # banners, etc.).
+          . = merge!(., parse_json(.message) ?? {})
+          del(.message)
+          .k8s_cluster = get_env_var!("K8S_CLUSTER_NAME")
+
+      pgaudit_only:
+        type: filter
+        inputs: ["parse_cnpg_json"]
+        condition: '.logger == "pgaudit"'
+
+    sinks:
+      loki:
+        type: loki
+        inputs: ["parse_cnpg_json"]
+        endpoint: "http://{{ hub_service_ips.loki }}:3100"
+        encoding:
+          codec: json
+        labels:
+{% raw %}
+          namespace: "{{ kubernetes.pod_namespace }}"
+          pod: "{{ kubernetes.pod_name }}"
+          container: "{{ kubernetes.container_name }}"
+          k8s_cluster: "{{ k8s_cluster }}"
+{% endraw %}
+
+      pgaudit_worm:
+        type: aws_s3
+        inputs: ["pgaudit_only"]
+        bucket: "{{ components.logging.worm_bucket }}"
+        region: "us-east-1"
+        endpoint: "http://{{ hub_service_ips.minio }}:9000"
+{% raw %}
+        key_prefix: "pgaudit/{{ k8s_cluster }}/{{ kubernetes.pod_namespace }}/{{ kubernetes.pod_name }}/%Y-%m-%d-%H%M%S-"
+{% endraw %}
+        compression: none
+        encoding:
+          codec: text
+        batch:
+          max_bytes: 10485760
+          timeout_secs: 300

@@ -131,6 +131,10 @@
       when: components.monitoring.enabled
       tags: [monitoring, observability]
 
+    - role: logging
+      when: components.logging.enabled
+      tags: [logging, observability]
+
   post_tasks:
     - name: Lab endpoints
       ansible.builtin.debug:

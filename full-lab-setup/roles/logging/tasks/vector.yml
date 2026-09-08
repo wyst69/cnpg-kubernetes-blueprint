@@ -1,0 +1,118 @@
+---
+- name: Add the vector Helm repository
+  ansible.builtin.command: "helm repo add vector {{ helm_repos.vector }} --force-update"
+  changed_when: false
+
+- name: Update the vector Helm repository
+  ansible.builtin.command: "helm repo update vector"
+  changed_when: false
+
+- name: Render the Vector pipeline ConfigMap
+  ansible.builtin.template:
+    src: vector-config.yaml.j2
+    dest: "{{ vector_values_path_prefix }}-config.yaml"
+    mode: "0644"
+
+- name: Create the vector namespace on each workload cluster
+  ansible.builtin.command: >-
+    kubectl create namespace {{ vector_namespace }}
+    --context {{ item.context }}
+    --dry-run=client -o yaml
+  register: vector_ns_manifest
+  changed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Apply the vector namespace
+  ansible.builtin.shell: >-
+    echo '{{ item.1.stdout }}' | kubectl apply --context {{ item.0.context }} -f -
+  args:
+    executable: /bin/bash
+  register: vector_ns_apply
+  changed_when: "'unchanged' not in vector_ns_apply.stdout"
+  loop: "{{ clusters | zip(vector_ns_manifest.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Create the MinIO credentials Secret for Vector on each workload cluster
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - --context
+      - "{{ item.context }}"
+      - -n
+      - "{{ vector_namespace }}"
+      - create
+      - secret
+      - generic
+      - "{{ vector_minio_secret_name }}"
+      - "--from-literal=AWS_ACCESS_KEY_ID={{ components.logging.worm_writer_user }}"
+      - "--from-literal=AWS_SECRET_ACCESS_KEY={{ components.logging.worm_writer_password }}"
+      - --dry-run=client
+      - -o
+      - yaml
+  register: vector_secret_manifest
+  changed_when: false
+  no_log: true
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Apply the MinIO credentials Secret
+  ansible.builtin.shell: >-
+    echo '{{ item.1.stdout }}' | kubectl apply --context {{ item.0.context }} -f -
+  args:
+    executable: /bin/bash
+  register: vector_secret_apply
+  changed_when: "'unchanged' not in vector_secret_apply.stdout"
+  no_log: true
+  loop: "{{ clusters | zip(vector_secret_manifest.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"
+
+- name: Apply the Vector pipeline ConfigMap on each workload cluster
+  ansible.builtin.command: >-
+    kubectl apply --context {{ item.context }} -f {{ vector_values_path_prefix }}-config.yaml
+  register: vector_config_apply
+  changed_when: "'unchanged' not in vector_config_apply.stdout"
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Render the per-cluster Vector Helm values
+  ansible.builtin.template:
+    src: vector-values.yaml.j2
+    dest: "{{ vector_values_path_prefix }}-{{ item.name }}-values.yaml"
+    mode: "0644"
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Probe the installed Vector release
+  ansible.builtin.command: >-
+    helm list --namespace {{ vector_namespace }} --filter ^vector$
+    --kube-context {{ item.context }} -o json
+  register: vector_probe
+  changed_when: false
+  failed_when: false
+  loop: "{{ clusters }}"
+  loop_control:
+    label: "{{ item.context }}"
+
+- name: Install or upgrade Vector on the workload clusters
+  ansible.builtin.command: >-
+    helm upgrade --install vector vector/vector
+    --namespace {{ vector_namespace }} --create-namespace
+    {% if vector_chart_version %}--version {{ vector_chart_version }}{% endif %}
+    --values {{ vector_values_path_prefix }}-{{ item.0.name }}-values.yaml
+    --kube-context {{ item.0.context }}
+    --wait --timeout 10m
+  changed_when: >-
+    '"status":"deployed"' not in item.1.stdout
+    or (vector_chart_version | length > 0
+        and ('"chart":"vector-' ~ vector_chart_version ~ '"')
+            not in item.1.stdout)
+  loop: "{{ clusters | zip(vector_probe.results) | list }}"
+  loop_control:
+    label: "{{ item.0.context }}"

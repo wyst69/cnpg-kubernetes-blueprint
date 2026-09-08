@@ -1,0 +1,11 @@
+---
+loki_namespace: loki
+loki_manifest_values_path: "/tmp/loki-values.yaml"
+loki_data_size: 5Gi
+
+worm_writer_policy_path: "/tmp/worm-writer-policy.json"
+
+vector_namespace: vector
+vector_values_path_prefix: "/tmp/vector"
+
+vector_minio_secret_name: vector-minio-creds

@@ -23,11 +23,6 @@ csi_snapshot_crd_urls:
   - "{{ csi_snapshotter_base }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml"
   - "{{ csi_snapshotter_base }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml"
 csi_snapshot_controller_urls:
-  # RBAC first: setup-snapshot-controller.yaml is the Deployment ONLY (verified
-  # by reading it) — it does not include the ServiceAccount/ClusterRole/
-  # ClusterRoleBinding the Deployment's pods need, those are in this sibling
-  # file. Applying the Deployment without it leaves every pod stuck on
-  # "serviceaccount not found" forever, with no events pointing at the fix.
   - "{{ csi_snapshotter_base }}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml"
   - "{{ csi_snapshotter_base }}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml"
 
@@ -73,6 +68,8 @@ helm_repos:
   prometheus-community: "https://prometheus-community.github.io/helm-charts"
   open-telemetry: "https://open-telemetry.github.io/opentelemetry-helm-charts"
   signoz: "https://charts.signoz.io"
+  grafana: "https://grafana.github.io/helm-charts"
+  vector: "https://helm.vector.dev"
 
 # --- Helm chart versions ------------------------------------------------------
 # Empty string = whatever the repo's latest is. Pin these once you have a
@@ -84,6 +81,8 @@ eso_chart_version: "{{ eso_version }}"
 kube_prometheus_chart_version: ""
 otel_collector_chart_version: ""
 signoz_chart_version: ""
+loki_chart_version: ""
+vector_chart_version: ""
 
 # --- Container images ---------------------------------------------------------
 minio_image: "minio/minio:RELEASE.2025-04-22T22-12-26Z"

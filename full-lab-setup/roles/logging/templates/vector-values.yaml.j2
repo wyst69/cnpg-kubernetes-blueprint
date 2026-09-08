@@ -1,0 +1,22 @@
+# {{ ansible_managed }}
+# Vector as a DaemonSet ("Agent" role) on {{ item.name }}.
+role: Agent
+dataDir: /vector-data-dir
+existingConfigMaps:
+  - vector-config
+
+service:
+  ports:
+    - name: prom-exporter
+      port: 9090
+      protocol: TCP
+
+logLevel: "debug"
+
+env:
+  - name: K8S_CLUSTER_NAME
+    value: "{{ item.name }}"
+
+envFrom:
+  - secretRef:
+      name: "{{ vector_minio_secret_name }}"

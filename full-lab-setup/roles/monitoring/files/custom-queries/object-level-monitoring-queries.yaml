@@ -90,8 +90,8 @@ data:
              WHERE o.option_name = 'autovacuum_vacuum_scale_factor'),
             pg_catalog.current_setting('autovacuum_vacuum_scale_factor')::float8
           ) AS vacuum_scale_factor,
-          pg_catalog.extract(epoch from s.last_vacuum) AS last_vacuum,
-          pg_catalog.extract(epoch from s.last_autovacuum) AS last_autovacuum
+          extract(epoch from s.last_vacuum) AS last_vacuum,
+          extract(epoch from s.last_autovacuum) AS last_autovacuum
         FROM pg_catalog.pg_stat_user_tables s
         JOIN pg_catalog.pg_class c ON c.oid = s.relid
       metrics:
