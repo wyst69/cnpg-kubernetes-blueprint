@@ -21,6 +21,7 @@ lab_user_home: "/home/{{ lab_user }}"
 # routable from one cluster to another.
 lab_network: "multi-cluster-net"
 lab_subnet: "172.20.0.0/16"
+lab_gateway: "172.20.0.1"
 
 # =============================================================================
 # Management hub — MANDATORY

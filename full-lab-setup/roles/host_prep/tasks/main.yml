@@ -12,6 +12,7 @@
     driver: bridge
     ipam_config:
       - subnet: "{{ lab_subnet }}"
+        gateway: "{{ lab_gateway }}"
 
 - name: Check whether firewalld is running
   ansible.builtin.command: systemctl is-active firewalld
