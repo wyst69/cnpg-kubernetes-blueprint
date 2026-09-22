@@ -28,7 +28,7 @@
     dest: "{{ secrets_keys_file }}"
     content: "{{ secrets_init_raw.stdout }}"
     owner: "{{ lab_user }}"
-    group: "{{ lab_user }}"
+    group: "{{ lab_group }}"
     mode: "0600"
   no_log: true
   when: not secrets_status.initialized

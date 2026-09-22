@@ -11,7 +11,8 @@
 # in k3d-managed volumes, not in standalone Docker volumes any more.
 #
 # NOT reverted: the FORWARD iptables policy (its prior value is unknown) and
-# the inotify sysctls.
+# the inotify sysctls. On macOS the iptables INPUT-rule removal is skipped
+# entirely — site.yml never inserts those rules there in the first place.
 # =============================================================================
 - name: Tear down the CNPG cross-cluster lab
   hosts: "{{ target | default('localhost') }}"
@@ -95,6 +96,9 @@
     # ========================================================================
     # 4 — Host-side files and firewall rules
     # ========================================================================
+    # No iptables on macOS, and site.yml never inserted these rules there in the
+    # first place (host_prep skips Tier-B firewall/sysctl tasks on Darwin) — so
+    # there is nothing to remove, and become would only fail on the sudo prompt.
     - name: Remove the lab's iptables INPUT rules
       become: true
       ansible.builtin.iptables:
@@ -107,6 +111,7 @@
       loop_control:
         label: "{{ item.host }} ({{ item.label }})"
       failed_when: false
+      when: ansible_facts.system != 'Darwin'
 
     - name: Remove the managed block from ~/.bashrc
       ansible.builtin.blockinfile:
@@ -116,9 +121,11 @@
 
     # become, because a lab built by an older revision of this playbook (which
     # escalated the whole play) left these owned by root — and /tmp is sticky, so
-    # the connecting user cannot remove them.
+    # the connecting user cannot remove them. Not needed on macOS: site.yml's
+    # Darwin-skip path never escalates for anything that writes these paths, so
+    # they are always owned by the connecting user there, root-owned or not.
     - name: Remove generated files and working directories
-      become: true
+      become: "{{ ansible_facts.system != 'Darwin' }}"
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
@@ -126,7 +133,7 @@
       # selected one — teardown has to clean up after whichever was deployed.
       loop: >-
         {{ (secrets_providers.values() | map(attribute='keys_file') | list)
-           + (secrets_providers | list | map('regex_replace', '^(.*)$', '/tmp/\\1-values.yaml') | list)
+           + (secrets_providers | list | map('regex_replace', '^(.*)$', '/tmp/\1-values.yaml') | list)
            + [lab_user_home ~ '/signoz',
               csi_hostpath_checkout,
               '/tmp/foundry.sh',
@@ -135,7 +142,7 @@
               '/tmp/signoz-values.yaml'] }}
 
     - name: Remove the rendered Vault backend manifests
-      become: true            # may be root-owned by an older revision
+      become: "{{ ansible_facts.system != 'Darwin' }}"   # may be root-owned by an older revision
       ansible.builtin.file:
         path: "/tmp/vault-backends-{{ item.name }}.yaml"
         state: absent
@@ -144,7 +151,7 @@
         label: "{{ item.name }}"
 
     - name: Remove the rendered per-cluster monitoring values
-      become: true            # may be root-owned by an older revision
+      become: "{{ ansible_facts.system != 'Darwin' }}"   # may be root-owned by an older revision
       ansible.builtin.file:
         path: "/tmp/{{ item.0 }}-{{ item.1.name }}-values.yaml"
         state: absent

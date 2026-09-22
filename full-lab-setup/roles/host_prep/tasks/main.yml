@@ -28,12 +28,27 @@
   ansible.builtin.debug:
     msg: "Firewall backend: {{ lab_firewall }}"
 
+# macOS has neither iptables/firewalld nor a Linux kernel of its own to tune —
+# Docker Desktop's own hidden Linux VM owns that layer, not reachable from here.
+# Skip rather than fail; the equivalent tuning would need to happen inside that
+# VM, which is out of scope for this role.
+- name: Warn that host-level firewall/sysctl/kernel-module tuning is skipped on macOS
+  ansible.builtin.debug:
+    msg: >-
+      Skipping iptables/firewalld, inotify sysctls, and the nfsd kernel module
+      check — none apply to a macOS Docker Desktop host. If k3d nodes later
+      hit an inotify-watch ceiling, raise it in Docker Desktop's own resource
+      settings instead.
+  when: ansible_facts.system == 'Darwin'
+
 - name: Set FORWARD chain default policy to ACCEPT
   become: true
   ansible.builtin.iptables:
     chain: FORWARD
     policy: ACCEPT
-  when: lab_firewall == 'iptables'
+  when:
+    - ansible_facts.system != 'Darwin'
+    - lab_firewall == 'iptables'
 
 - name: Allow inbound TCP for the hub's published ports
   become: true
@@ -46,7 +61,9 @@
   loop: "{{ hub_published_ports }}"
   loop_control:
     label: "{{ item.host }} ({{ item.label }})"
-  when: lab_firewall == 'iptables'
+  when:
+    - ansible_facts.system != 'Darwin'
+    - lab_firewall == 'iptables'
 
 - name: Open the hub's published ports in firewalld
   become: true
@@ -58,7 +75,9 @@
   loop: "{{ hub_published_ports }}"
   loop_control:
     label: "{{ item.host }} ({{ item.label }})"
-  when: lab_firewall == 'firewalld'
+  when:
+    - ansible_facts.system != 'Darwin'
+    - lab_firewall == 'firewalld'
 
 # /etc/sysctl.conf is NOT read by systemd-sysctl.service at boot on Debian
 # (only /etc/sysctl.d/*.conf, /run/sysctl.d/*.conf, /usr/lib/sysctl.d/*.conf
@@ -81,18 +100,22 @@
   loop:
     - {name: 'fs.inotify.max_user_watches', value: '1048576'}
     - {name: 'fs.inotify.max_user_instances', value: '8192'}
+  when: ansible_facts.system != 'Darwin'
 
 - name: Ensure jq is installed
   become: true
   ansible.builtin.package:
     name: jq
     state: present
+  when: ansible_facts.system != 'Darwin'
 
 - name: Check whether the nfsd kernel module is loaded
   ansible.builtin.command: lsmod
   register: lsmod_out
   changed_when: false
-  when: components.storage.driver == 'csi-nfs'
+  when:
+    - ansible_facts.system != 'Darwin'
+    - components.storage.driver == 'csi-nfs'
 
 # k3d nodes share the host kernel, so the in-cluster NFS server's kernel-mode
 # nfsd needs this module loaded on the Docker host itself. Standard Debian/
@@ -103,14 +126,24 @@
   ansible.builtin.command: modprobe nfsd
   changed_when: true
   when:
+    - ansible_facts.system != 'Darwin'
     - components.storage.driver == 'csi-nfs'
     - "'nfsd' not in lsmod_out.stdout"
 
+# Homebrew's install prefixes (/opt/homebrew on Apple Silicon, /usr/local on
+# Intel Macs) are user-writable by design — Homebrew refuses to run as root —
+# so no become is needed there, unlike the Linux /usr/local/bin case.
+- name: Determine the MinIO client install directory
+  ansible.builtin.set_fact:
+    minio_mc_install_dir: >-
+      {{ '/opt/homebrew/bin' if (ansible_facts.system == 'Darwin' and ansible_facts.architecture == 'arm64')
+         else '/usr/local/bin' }}
+
 - name: Install the MinIO client (mc)
-  become: true
+  become: "{{ ansible_facts.system != 'Darwin' }}"
   ansible.builtin.get_url:
     url: "{{ minio_mc_url }}"
-    dest: /usr/local/bin/mc
+    dest: "{{ minio_mc_install_dir }}/mc"
     mode: "0755"
 
 - name: Ensure the kube config directory exists
@@ -118,14 +151,14 @@
     path: "{{ lab_user_home }}/.kube"
     state: directory
     owner: "{{ lab_user }}"
-    group: "{{ lab_user }}"
+    group: "{{ lab_group }}"
     mode: "0700"
 
 - name: Configure the lab shell environment in ~/.bashrc
   ansible.builtin.blockinfile:
     path: "{{ lab_user_home }}/.bashrc"
     owner: "{{ lab_user }}"
-    group: "{{ lab_user }}"
+    group: "{{ lab_group }}"
     marker: "# {mark} ANSIBLE MANAGED BLOCK: LAB CLI ENVS"
     block: |
       # --- {{ secrets_cfg.display }} (hub cluster, published on the host by k3d) ---

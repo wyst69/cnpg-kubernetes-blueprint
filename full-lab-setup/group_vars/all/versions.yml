@@ -86,4 +86,14 @@ vector_chart_version: ""
 
 # --- Container images ---------------------------------------------------------
 minio_image: "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z.hotfix.c630804a1"
-minio_mc_url: "https://dl.min.io/aistor/mc/release/linux-amd64/mc"
+
+# mc's release layout is {os}-{arch}/mc; Ansible's os/arch fact names don't match
+# mc's, so both get translated here rather than just assuming linux-amd64.
+minio_mc_os_map:
+  Linux: linux
+  Darwin: darwin
+minio_mc_arch_map:
+  x86_64: amd64
+  aarch64: arm64
+  arm64: arm64
+minio_mc_url: "https://dl.min.io/aistor/mc/release/{{ minio_mc_os_map[ansible_facts.system] }}-{{ minio_mc_arch_map[ansible_facts.architecture] }}/mc"

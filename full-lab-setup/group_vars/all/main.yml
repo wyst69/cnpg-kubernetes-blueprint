@@ -14,7 +14,10 @@ host_ip: "{{ ansible_facts.default_ipv4.address | default('') }}"
 # The unprivileged account that owns ~/.kube/config, ~/.vault-keys.json and the
 # managed ~/.bashrc block — even when individual tasks escalate to root.
 lab_user: "{{ ansible_facts.env.SUDO_USER | default(ansible_facts.user_id) }}"
-lab_user_home: "/home/{{ lab_user }}"
+lab_user_home: "{{ ansible_facts.user_dir }}"
+# Portable primary-group id — macOS has no Linux-style user-private-group
+# convention, so a group named after lab_user usually doesn't exist there.
+lab_group: "{{ ansible_facts.user_gid }}"
 
 # --- Shared Docker network ---------------------------------------------------
 # Every k3d node container lands here, which is what makes MetalLB addresses

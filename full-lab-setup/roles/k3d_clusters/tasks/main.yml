@@ -35,7 +35,7 @@
   ansible.builtin.file:
     path: "{{ lab_user_home }}/.kube/config"
     owner: "{{ lab_user }}"
-    group: "{{ lab_user }}"
+    group: "{{ lab_group }}"
     mode: "0600"
 
 - name: Wait for every cluster's API server to answer
