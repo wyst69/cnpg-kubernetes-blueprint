@@ -6,6 +6,70 @@
 # ~/.bashrc block. Nothing Kubernetes-aware lives here.
 # =============================================================================
 
+- name: Look up existing Docker network names
+  community.docker.docker_host_info:
+    networks: true
+  register: docker_host_facts
+
+# docker_host_info only lists network names — it carries no IPAM data — so
+# each candidate needs its own inspect via docker_network_info to get subnets.
+- name: Inspect each existing Docker network for its subnet(s)
+  community.docker.docker_network_info:
+    name: "{{ item }}"
+  loop: "{{ docker_host_facts.networks | map(attribute='Name') | reject('equalto', lab_network) | list }}"
+  register: other_networks_info
+
+- name: Collect subnets used by other Docker networks
+  ansible.builtin.set_fact:
+    other_lab_subnets: >-
+      {{ other_networks_info.results
+         | map(attribute='network.IPAM.Config')
+         | reject('none')
+         | sum(start=[])
+         | selectattr('Subnet', 'defined')
+         | map(attribute='Subnet') | list }}
+
+- name: Check lab_subnet doesn't overlap an existing Docker network
+  ansible.builtin.script:
+    cmd: "check_subnet_overlap.py {{ lab_subnet }} {{ other_lab_subnets | join(' ') }}"
+  register: subnet_overlap
+  changed_when: false
+  failed_when: false
+
+- name: Fail with an actionable message if lab_subnet collides
+  ansible.builtin.fail:
+    msg: >-
+      lab_subnet ({{ lab_subnet }}) overlaps existing Docker network subnet(s):
+      {{ subnet_overlap.stdout }}. Pick a free /16 and update lab_subnet, lab_gateway,
+      the metallb_range values, and the fixed hub IPs in group_vars/all/main.yml.
+  when: subnet_overlap.rc != 0
+
+- name: Inspect the lab's own Docker network, if it already exists
+  community.docker.docker_network_info:
+    name: "{{ lab_network }}"
+  register: lab_network_info
+
+# community.docker.docker_network recreates (removes + creates) the network
+# whenever its config doesn't match — silently detaching every already-attached
+# container, which cannot be reattached. Fail loudly instead of letting that
+# happen out from under a live lab.
+- name: Fail rather than silently recreate the lab network out from under running containers
+  ansible.builtin.fail:
+    msg: >-
+      Docker network {{ lab_network }} already exists with subnet
+      {{ lab_network_info.network.IPAM.Config[0].Subnet }} / gateway
+      {{ lab_network_info.network.IPAM.Config[0].Gateway }}, but lab_subnet/lab_gateway
+      now request {{ lab_subnet }}/{{ lab_gateway }}. Recreating it would silently
+      detach every already-attached container ({{ lab_network_info.network.Containers
+      | length }} attached) from the network, breaking them beyond repair. Tear the
+      lab down first (ansible-playbook teardown.yml), or revert lab_subnet/lab_gateway
+      to match the existing network.
+  when:
+    - lab_network_info.exists
+    - lab_network_info.network.Containers | length > 0
+    - (lab_network_info.network.IPAM.Config[0].Subnet != lab_subnet
+       or lab_network_info.network.IPAM.Config[0].Gateway != lab_gateway)
+
 - name: Create the shared lab Docker network
   community.docker.docker_network:
     name: "{{ lab_network }}"

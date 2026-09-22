@@ -23,8 +23,8 @@ lab_group: "{{ ansible_facts.user_gid }}"
 # Every k3d node container lands here, which is what makes MetalLB addresses
 # routable from one cluster to another.
 lab_network: "multi-cluster-net"
-lab_subnet: "172.20.0.0/16"
-lab_gateway: "172.20.0.1"
+lab_subnet: "172.21.0.0/16"
+lab_gateway: "172.21.0.1"
 
 # =============================================================================
 # Management hub — MANDATORY
@@ -37,17 +37,17 @@ hub_cluster:
   api_port: 6445
   servers: 1
   agents: 1
-  metallb_range: "172.20.50.1-172.20.50.50"
+  metallb_range: "172.21.50.1-172.21.50.50"
 
 # Stable MetalLB addresses for the hub's shared services.
 hub_service_ips:
-  secrets: "172.20.50.10"
-  minio: "172.20.50.11"
-  grafana: "172.20.50.12"
-  prometheus: "172.20.50.13"
-  signoz: "172.20.50.14"
-  signoz_otlp: "172.20.50.15"
-  loki: "172.20.50.16"
+  secrets: "172.21.50.10"
+  minio: "172.21.50.11"
+  grafana: "172.21.50.12"
+  prometheus: "172.21.50.13"
+  signoz: "172.21.50.14"
+  signoz_otlp: "172.21.50.15"
+  loki: "172.21.50.16"
 
 # Each hub Service is type LoadBalancer *and* pins a nodePort, so the same
 # Service is reachable two ways: by LB IP from the other clusters, and by
@@ -90,14 +90,14 @@ clusters:
     api_port: 6443
     servers: 1
     agents: 3
-    metallb_range: "172.20.100.1-172.20.100.50"
+    metallb_range: "172.21.100.1-172.21.100.50"
   - name: cluster-b
     context: k3d-cluster-b
     auth_path: k8s-cluster-b
     api_port: 6444
     servers: 1
     agents: 3
-    metallb_range: "172.20.200.1-172.20.200.50"
+    metallb_range: "172.21.200.1-172.21.200.50"
 
 # Hub + workloads, for the roles that treat every cluster the same
 # (k3d creation, storage, MetalLB).

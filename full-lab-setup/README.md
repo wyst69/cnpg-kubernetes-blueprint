@@ -16,7 +16,7 @@ you care about.
 
 ```
                           ┌──────────────────────── hub (k3d) ────────────────────────┐
-                          │  OpenBao 172.20.50.10:8200  MinIO  172.20.50.11:9000      │
+                          │  OpenBao 172.21.50.10:8200  MinIO  172.21.50.11:9000      │
                           │  Prometheus .13:9090        Grafana .12:3000              │
                           └───────────────▲────────────────────▲──────────────────────┘
                                           │ ESO + cert-manager │ barman-cloud
@@ -24,7 +24,7 @@ you care about.
                           │ cluster-a (k3d)      │   │ cluster-b (k3d)      │
                           │ CNPG · ESO · certmgr │   │ CNPG · ESO · certmgr │
                           └──────────────────────┘   └──────────────────────┘
-                            all on Docker network multi-cluster-net (172.20.0.0/16)
+                            all on Docker network multi-cluster-net (172.21.0.0/16)
 ```
 
 ## Layout
@@ -148,6 +148,15 @@ multi-homed host. It has to be a **real host IP**, not `127.0.0.1`: it is baked
 into each cluster's API server certificate as a SAN at creation time, so
 changing it later means recreating the clusters.
 
+### The other knob that can bite you: `lab_subnet`
+
+`host_prep` checks `lab_subnet` (default `172.21.0.0/16`, `group_vars/all/main.yml`)
+against every Docker network already on the host before creating
+`multi-cluster-net`, and fails with a clear message — naming the colliding
+subnet — instead of Docker's raw "pool overlaps" 403. If it fails, pick a free
+`/16` and update `lab_subnet`, `lab_gateway`, the `metallb_range` values, and
+`hub_service_ips` in `group_vars/all/main.yml` together (they all move as a unit).
+
 ### Selecting parts of the run
 
 Every role carries tags:
@@ -222,15 +231,15 @@ From the Docker host (k3d publishes the hub's nodePorts on localhost):
 
 | Service | Host | From inside the clusters |
 |---|---|---|
-| OpenBao / Vault API+UI | http://127.0.0.1:8200 | http://172.20.50.10:8200 |
-| MinIO S3 | http://127.0.0.1:9000 | http://172.20.50.11:9000 |
+| OpenBao / Vault API+UI | http://127.0.0.1:8200 | http://172.21.50.10:8200 |
+| MinIO S3 | http://127.0.0.1:9000 | http://172.21.50.11:9000 |
 | MinIO console | http://127.0.0.1:9001 | — |
-| Grafana | http://127.0.0.1:3000 | http://172.20.50.12 |
-| Prometheus | http://127.0.0.1:9090 | http://172.20.50.13:9090 |
-| SigNoz UI | http://127.0.0.1:8080 | http://172.20.50.14:8080 |
+| Grafana | http://127.0.0.1:3000 | http://172.21.50.12 |
+| Prometheus | http://127.0.0.1:9090 | http://172.21.50.13:9090 |
+| SigNoz UI | http://127.0.0.1:8080 | http://172.21.50.14:8080 |
 
 The SigNoz OTLP endpoint is not in that table because nothing on the host needs
-it: workload collectors reach it in-cluster at `172.20.50.15:4317`. It has its
+it: workload collectors reach it in-cluster at `172.21.50.15:4317`. It has its
 own address because MetalLB will not give two Services the same IP.
 
 Credentials: the root token and unseal key land in `~/.openbao-keys.json`, or
@@ -246,7 +255,7 @@ Open a new shell (or `source ~/.bashrc`) after a deploy to pick up those and the
 ### Pointing your `ObjectStore` manifests at the hub
 
 ```yaml
-    endpointURL: http://172.20.50.11:9000
+    endpointURL: http://172.21.50.11:9000
     destinationPath: s3://cnpg-backups/
 ```
 
@@ -272,7 +281,7 @@ Two directions, two mechanisms.
 
 **Clusters → hub** goes over MetalLB. Every k3d node container sits on
 `multi-cluster-net`, so an address the hub advertises by ARP is reachable from
-pods in the other clusters. Hence the fixed `172.20.50.x` addresses: they are in
+pods in the other clusters. Hence the fixed `172.21.50.x` addresses: they are in
 the shared subnet but far above what Docker's IPAM hands out, so they never
 collide. Each hub Service is `type: LoadBalancer` **and** pins a nodePort, which
 is how the same Service ends up on your localhost too.
