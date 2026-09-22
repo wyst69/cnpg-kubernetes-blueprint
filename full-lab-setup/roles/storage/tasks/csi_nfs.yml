@@ -59,10 +59,14 @@
   loop_control:
     label: "{{ item.0.context }}"
 
+# 600s rather than a shorter wait: csi-nfs-controller's sidecars use Kubernetes
+# leader election, which exits the sidecar on a lease-renewal timeout under host
+# load (e.g. a parallel multi-cluster deploy) — that's a CrashLoopBackOff, which
+# backs off up to 300s between retries, so a shorter wait can give up mid self-heal.
 - name: Wait for the csi-nfs controller
   ansible.builtin.command: >-
     kubectl --context {{ item.context }} -n kube-system
-    rollout status deploy/csi-nfs-controller --timeout=180s
+    rollout status deploy/csi-nfs-controller --timeout=600s
   changed_when: false
   loop: "{{ all_clusters }}"
   loop_control:
@@ -71,7 +75,7 @@
 - name: Wait for the csi-nfs node DaemonSet
   ansible.builtin.command: >-
     kubectl --context {{ item.context }} -n kube-system
-    rollout status daemonset/csi-nfs-node --timeout=180s
+    rollout status daemonset/csi-nfs-node --timeout=600s
   changed_when: false
   loop: "{{ all_clusters }}"
   loop_control:
