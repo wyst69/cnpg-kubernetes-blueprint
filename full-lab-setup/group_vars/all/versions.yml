@@ -7,12 +7,12 @@
 
 # --- Manifest URLs -----------------------------------------------------------
 cert_manager_url: "https://github.com/cert-manager/cert-manager/releases/download/v1.21.1/cert-manager.yaml"
-cnpg_url: "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml"
-barman_plugin_url: "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.13.0/manifest.yaml"
+cnpg_url: "https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.1.yaml"
+barman_plugin_url: "https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.15.0/manifest.yaml"
 metallb_url: "https://raw.githubusercontent.com/metallb/metallb/v0.16.1/config/manifests/metallb-native.yaml"
 
 # The CRD bundle is pinned to the same release as the Helm chart.
-eso_version: "2.9.0"
+eso_version: "2.11.0"
 eso_crds_url: "https://raw.githubusercontent.com/external-secrets/external-secrets/v{{ eso_version }}/deploy/crds/bundle.yaml"
 
 # --- CSI hostpath / snapshots -------------------------------------------------
