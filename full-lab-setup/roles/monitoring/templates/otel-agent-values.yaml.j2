@@ -25,13 +25,29 @@ config:
       tls:
         insecure: true
 
+  processors:
+    # k8s_attributes can only extract the cluster's UUID (k8s.cluster.uid),
+    # not a readable name. This is a literal, Ansible-rendered value per
+    # collector instance. Uses the OTel semantic-convention key
+    # (k8s.cluster.name) — SigNoz's Logs Explorer "Cluster Name" quick
+    # filter is keyed off this exact name, same as k8s.namespace.name /
+    # k8s.deployment.name already showing up there.
+    resource/cluster:
+      attributes:
+        - key: k8s.cluster.name
+          value: "{{ cluster.name }}"
+          action: upsert
+
   service:
     pipelines:
       traces:
+        processors: [k8s_attributes, resource/cluster, memory_limiter, batch]
         exporters: [otlp_grpc]
       metrics:
+        processors: [k8s_attributes, resource/cluster, memory_limiter, batch]
         exporters: [otlp_grpc]
       logs:
+        processors: [k8s_attributes, resource/cluster, memory_limiter, batch]
         exporters: [otlp_grpc]
 
   receivers:
