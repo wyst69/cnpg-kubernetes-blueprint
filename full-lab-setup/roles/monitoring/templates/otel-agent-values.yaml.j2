@@ -20,7 +20,7 @@ image:
 
 config:
   exporters:
-    otlp:
+    otlp_grpc:
       endpoint: "{{ hub_service_ips.signoz_otlp }}:4317"
       tls:
         insecure: true
@@ -28,11 +28,11 @@ config:
   service:
     pipelines:
       traces:
-        exporters: [otlp]
+        exporters: [otlp_grpc]
       metrics:
-        exporters: [otlp]
+        exporters: [otlp_grpc]
       logs:
-        exporters: [otlp]
+        exporters: [otlp_grpc]
 
   receivers:
     prometheus:
@@ -42,6 +42,29 @@ config:
             scrape_interval: 30s
             static_configs:
               - targets: ["${env:MY_POD_IP}:8888"]
+          # otel-signoz has no Prometheus Operator watching PodMonitor CRs
+          # (that only happens under the kube-prometheus stack), so a CNPG
+          # Cluster's own PodMonitor is inert here. This job replicates it
+          # directly: any pod carrying cnpg.io/cluster with a container port
+          # named "metrics", cluster-wide (RBAC for pod discovery is already
+          # granted by the kubernetesAttributes/kubeletMetrics presets above).
+          - job_name: cnpg-cluster-metrics
+            scrape_interval: 30s
+            kubernetes_sd_configs:
+              - role: pod
+            relabel_configs:
+              - source_labels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+                action: keep
+                regex: .+
+              - source_labels: [__meta_kubernetes_pod_container_port_name]
+                action: keep
+                regex: metrics
+              - source_labels: [__meta_kubernetes_namespace]
+                target_label: namespace
+              - source_labels: [__meta_kubernetes_pod_name]
+                target_label: pod
+              - source_labels: [__meta_kubernetes_pod_label_cnpg_io_cluster]
+                target_label: cnpg_cluster
 
 resources:
   limits:

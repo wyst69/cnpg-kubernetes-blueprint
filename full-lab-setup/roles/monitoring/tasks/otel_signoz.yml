@@ -139,10 +139,10 @@
 - name: Assert every pipeline exports to the hub
   ansible.builtin.assert:
     that:
-      - (item.stdout | from_yaml).service.pipelines.traces.exporters == ['otlp']
-      - (item.stdout | from_yaml).service.pipelines.metrics.exporters == ['otlp']
-      - (item.stdout | from_yaml).service.pipelines.logs.exporters == ['otlp']
-      - (item.stdout | from_yaml).exporters.otlp.endpoint
+      - (item.stdout | from_yaml).service.pipelines.traces.exporters == ['otlp_grpc']
+      - (item.stdout | from_yaml).service.pipelines.metrics.exporters == ['otlp_grpc']
+      - (item.stdout | from_yaml).service.pipelines.logs.exporters == ['otlp_grpc']
+      - (item.stdout | from_yaml).exporters.otlp_grpc.endpoint
         == hub_service_ips.signoz_otlp ~ ':4317'
     fail_msg: >-
       The collector on {{ item.item.context }} is not routing to SigNoz.

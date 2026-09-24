@@ -54,7 +54,7 @@ lab_component_defaults:
   #                   the workload clusters shipping OTLP to it.
   monitoring:
     enabled: true
-    stack: kube-prometheus      # crds_only | kube-prometheus | otel-signoz
+    stack: otel-signoz      # crds_only | kube-prometheus | otel-signoz
     workload_agents: true       # kube-prometheus only
     retention: 24h
 
