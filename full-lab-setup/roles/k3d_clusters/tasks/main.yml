@@ -49,6 +49,69 @@
   loop_control:
     label: "{{ item.context }}"
 
+- name: Read the hub cluster's current CoreDNS Corefile
+  ansible.builtin.command: >-
+    kubectl --context {{ hub_cluster.context }} get configmap coredns -n kube-system
+    -o jsonpath={.data.Corefile}
+  register: hub_corefile
+  changed_when: false
+
+# k3d injects host.k3d.internal into CoreDNS at cluster-create time, but k3s's
+# own node-hosts reconciler overwrites the same NodeHosts file on every node
+# restart and drops it — breaking Vault's kubernetes-auth callback into the
+# workload clusters' API servers after any crash/reboot. Bake the entry into
+# the `hosts` block itself instead of NodeHosts so it survives that.
+- name: Fix host.k3d.internal so it survives a node restart
+  when: "'host.k3d.internal' not in hub_corefile.stdout"
+  vars:
+    # Real newline from a YAML double-quoted scalar; '\n' inside a Jinja string
+    # is not reliably decoded across ansible-core versions.
+    nl: "\n"
+  block:
+    - name: Render the patched Corefile
+      ansible.builtin.copy:
+        dest: /tmp/hub-coredns-corefile
+        content: >-
+          {{ hub_corefile.stdout
+             | replace('hosts /etc/coredns/NodeHosts {',
+                        'hosts /etc/coredns/NodeHosts {' ~ nl ~ '      ' ~ lab_gateway ~ ' host.k3d.internal') }}
+
+    - name: Render the patched ConfigMap manifest
+      ansible.builtin.command: >-
+        kubectl --context {{ hub_cluster.context }} create configmap coredns -n kube-system
+        --from-file=Corefile=/tmp/hub-coredns-corefile
+        --dry-run=client -o yaml
+      register: hub_coredns_cm
+      changed_when: false
+
+    - name: Write the ConfigMap manifest
+      ansible.builtin.copy:
+        dest: /tmp/hub-coredns-cm.yaml
+        content: "{{ hub_coredns_cm.stdout }}"
+
+    - name: Apply the patched ConfigMap
+      ansible.builtin.command: >-
+        kubectl --context {{ hub_cluster.context }} apply -f /tmp/hub-coredns-cm.yaml
+      changed_when: true
+
+    - name: Restart CoreDNS to pick up the patched Corefile
+      ansible.builtin.command: >-
+        kubectl --context {{ hub_cluster.context }} rollout restart deployment coredns -n kube-system
+      changed_when: true
+
+    - name: Wait for the CoreDNS rollout
+      ansible.builtin.command: >-
+        kubectl --context {{ hub_cluster.context }} rollout status deployment coredns -n kube-system --timeout=60s
+      changed_when: false
+
+    - name: Clean up scratch files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /tmp/hub-coredns-corefile
+        - /tmp/hub-coredns-cm.yaml
+
 - name: Taint the workload clusters' server nodes as control-plane-only
   ansible.builtin.command: >-
     kubectl taint node --context {{ item.context }}
